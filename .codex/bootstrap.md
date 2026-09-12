@@ -18,7 +18,7 @@ Nếu mở thư mục tổng chưa có AGENTS.md, yêu cầu đọc trực tiế
 
 ## Phần local của repo hiện tại
 
-1. Đọc [context](context.md) và [workflow](workflow.md). Kiểm tra AGENTS.md, context/workflow/lessons và SKILL.md dùng chung có trong checkout; nếu thiếu tracked guidance, báo checkout chưa đầy đủ và kiểm tra nhánh/remote theo workflow, không tự bịa hoặc khôi phục thay đổi người khác.
+1. Đọc [context](context.md), [workflow](workflow.md) và [skills inventory](skills-inventory.md) nếu có. Kiểm tra AGENTS.md, context/workflow/lessons và SKILL.md dùng chung có trong checkout; nếu thiếu tracked guidance, báo checkout chưa đầy đủ và kiểm tra nhánh/remote theo workflow, không tự bịa hoặc khôi phục thay đổi người khác.
 2. Trước khi tạo ghi chú, dùng `git check-ignore` xác nhận `.codex/local/` được ignore, đồng thời `git ls-files -- .codex/local/` không có file đã track. Nếu không đạt, báo cấu hình chưa đúng; không tự ghi thông tin phiên vào đường dẫn có thể lên Git.
 3. Tạo `.codex/local/handoff.md` nếu thiếu: tên repo, thời điểm thực tế, "khởi tạo trên máy này, chưa có lịch sử bàn giao", branch/HEAD quan sát được, task hiện tại nếu biết, trạng thái kiểm tra "chưa chạy" và bước tiếp theo. Không coi HEAD local là remote mới nhất.
 4. Tạo `.codex/local/lessons.md` nếu thiếu: tiêu đề và "chưa có bài học được ghi nhận trên máy này"; không dựng lại lỗi/test từ máy người khác.
