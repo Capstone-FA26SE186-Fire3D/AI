@@ -1,5 +1,7 @@
 from pydantic import ValidationError
 import pytest
+from pathlib import Path
+import re
 
 from app.schemas.pccc import Advisory, PcccAnalysisRequest
 
@@ -30,3 +32,10 @@ def test_analysis_request_limits_embedded_image_size() -> None:
                 ],
             }
         )
+
+
+def test_env_example_has_no_real_openai_key() -> None:
+    env_example = Path(".env.example").read_text(encoding="utf-8")
+
+    assert "OPENAI_API_KEY=" in env_example
+    assert not re.search(r"OPENAI_API_KEY=sk-[A-Za-z0-9]", env_example)
