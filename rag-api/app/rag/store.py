@@ -41,6 +41,7 @@ class VectorStore:
                 chunk_index=metadata["chunk_index"],
                 content=document,
                 source_id=f"{metadata['document_name']}:{metadata['chunk_index']}",
+                version=metadata.get("version"),
             )
             for document, metadata in zip(documents, metadatas)
         ]

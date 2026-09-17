@@ -46,7 +46,10 @@ def create_pccc_advisory(
 ) -> PcccAnalysisResponse:
     if not sources:
         raise ValueError("No approved PCCC knowledge is available for this analysis")
-    source_ids = {source.source_id or f"{source.document_name}:{source.chunk_index}" for source in sources}
+    source_versions = {
+        source.source_id or f"{source.document_name}:{source.chunk_index}": source.version
+        for source in sources
+    }
     payload = {
         "question": request.question,
         "building": request.building.model_dump(mode="json"),
@@ -54,17 +57,22 @@ def create_pccc_advisory(
         "elements": [element.model_dump(mode="json") for element in request.elements],
         "images": [image.model_dump(mode="json") for image in request.images],
         "knowledge": [
-            {"source_id": source.source_id or f"{source.document_name}:{source.chunk_index}", "document_name": source.document_name, "chunk_index": source.chunk_index, "content": source.content}
+            {"source_id": source.source_id or f"{source.document_name}:{source.chunk_index}", "document_name": source.document_name, "chunk_index": source.chunk_index, "version": source.version, "content": source.content}
             for source in sources
         ],
     }
     response = PcccAnalysisResponse.model_validate(model.complete(SYSTEM_PROMPT, payload))
     element_ids = {element.id for element in request.elements}
+    floor_ids = {floor.id for floor in request.floors}
     for advisory in response.advisories:
+        if advisory.location.floor_id not in floor_ids or advisory.draft_annotation.floor_id not in floor_ids:
+            raise ValueError("AI advisory cites an unknown floor")
         unknown_elements = set(advisory.evidence.bim_element_ids) - element_ids
         if unknown_elements:
             raise ValueError("AI advisory cites an unknown BIM element")
-        unknown_sources = {source.source_id for source in advisory.evidence.knowledge_sources} - source_ids
+        unknown_sources = {source.source_id for source in advisory.evidence.knowledge_sources} - set(source_versions)
         if unknown_sources:
             raise ValueError("AI advisory cites an unknown approved knowledge source")
+        if any(source_versions[source.source_id] != source.version for source in advisory.evidence.knowledge_sources):
+            raise ValueError("AI advisory cites a wrong knowledge version")
     return response

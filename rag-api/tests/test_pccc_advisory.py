@@ -26,7 +26,7 @@ def sample_request() -> PcccAnalysisRequest:
 
 
 def approved_sources() -> list[SourceChunk]:
-    return [SourceChunk(document_name="qcvn.pdf", chunk_index=0, content="Lối thoát", source_id="qcvn.pdf:0")]
+    return [SourceChunk(document_name="qcvn.pdf", chunk_index=0, content="Lối thoát", source_id="qcvn.pdf:0", version="2023")]
 
 
 def valid_result() -> dict:
@@ -61,6 +61,20 @@ def test_rejects_model_advice_with_unknown_evidence() -> None:
     result["advisories"][0]["evidence"]["bim_element_ids"] = ["invented"]
 
     with pytest.raises(ValueError, match="unknown BIM element"):
+        create_pccc_advisory(sample_request(), approved_sources(), RecordingModel(result))
+
+
+def test_rejects_model_advice_with_unknown_floor_or_document_version() -> None:
+    result = valid_result()
+    result["advisories"][0]["location"]["floor_id"] = "invented-floor"
+    result["advisories"][0]["draft_annotation"]["floor_id"] = "invented-floor"
+
+    with pytest.raises(ValueError, match="unknown floor"):
+        create_pccc_advisory(sample_request(), approved_sources(), RecordingModel(result))
+
+    result = valid_result()
+    result["advisories"][0]["evidence"]["knowledge_sources"][0]["version"] = "wrong"
+    with pytest.raises(ValueError, match="wrong knowledge version"):
         create_pccc_advisory(sample_request(), approved_sources(), RecordingModel(result))
 
 
