@@ -13,6 +13,15 @@ generated `skills-lock.json` records the source paths and content hashes.
 - `fastapi-templates` — `wshobson/agents`; FastAPI scaffolding patterns.
 - `rag-implementation` — `wshobson/agents`; RAG/vector-search implementation, including Chroma-oriented patterns.
 
+`rag-implementation` là tài liệu tham khảo, không quyết định storage. Kiến trúc production của Fire3D dùng Supabase PostgreSQL + `pgvector`; mọi pattern Chroma phải được chuyển nghĩa và review trước khi áp dụng.
+
+## IFC và ranh giới artifact
+
+- `IfcOpenShell`/`IfcConvert` — extraction/normalization của IFC, không phải game runtime.
+- Blender chạy script — tối ưu mesh/material/LOD theo quy tắc nhóm; không thay thế Unity build.
+- Unity Editor build worker — import asset đã QA, tạo collider/NavMesh/Addressables hoặc package runtime; cần môi trường Editor/configuration riêng.
+- RAG service — facts/chunks/embeddings, common-vs-organization scope và hai audience; AI chỉ tạo answer/draft có citation, không mutate scenario hoặc publish.
+
 ## Cross-cutting review skills
 
 - `ponytail`, `ponytail-review`, `ponytail-audit`, `ponytail-debt`,

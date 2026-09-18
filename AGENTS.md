@@ -2,8 +2,6 @@
 
 - Khi bắt đầu task, kiểm tra local notes và bộ AGENTS/.codex của workspace cha có thiếu không. Nếu thiếu, đọc [.codex/bootstrap.md](.codex/bootstrap.md) và khởi tạo theo điều kiện an toàn ở đó trước khi tiếp tục; chỉ tạo phần thiếu, không ghi đè. Plan Mode/read-only không ghi file.
 
-- Khi bắt đầu task, kiểm tra local notes và bộ AGENTS/.codex của workspace cha có thiếu không. Nếu thiếu, đọc [.codex/bootstrap.md](.codex/bootstrap.md) và khởi tạo theo điều kiện an toàn ở đó trước khi tiếp tục; chỉ tạo phần thiếu, không ghi đè. Plan Mode/read-only không ghi file.
-
 - Trước thao tác, đọc [.codex/context.md](.codex/context.md), [.codex/workflow.md](.codex/workflow.md), rồi `.codex/local/handoff.md` nếu có. Xác minh lại trạng thái Git; ghi chú cũ không chứng minh remote mới nhất.
 - Sau đó đọc [.codex/skills-inventory.md](.codex/skills-inventory.md) để chọn đúng skill project-local; chỉ đọc `SKILL.md` liên quan đến task.
 - Tìm bài học liên quan trong `.codex/local/lessons.md` và [.codex/lessons.md](.codex/lessons.md); không đọc toàn bộ lịch sử hoặc mọi skill mặc định.
