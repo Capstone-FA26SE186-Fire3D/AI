@@ -1,0 +1,1 @@
+"""Safe BIM inspection helpers."""
