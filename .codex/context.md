@@ -51,3 +51,10 @@ Khi có checkout Docs bên cạnh, đọc `Docs/fire_evacuation_bim_rag_pccc.md`
 - Worker claim/renew/accept/fail/requeue khóa logical job trước attempt. Claim trả `Claimed`, `Busy`, `AlreadyCompleted`, `NotClaimable` hoặc `Conflict`; chỉ `Claimed` cấp lease token mới. Requeue `Failed` idempotent qua outbox; `Cancelled` terminal.
 - Artifact manifest do worker tạo phải có manifest hash và build target; package provenance phải khớp artifact/validation pin trước khi BE cho publish hoặc playtest.
 - Capability manifest phải là array mà mọi phần tử là chuỗi không rỗng; artifact/validation provenance phải đúng attempt/job/revision/scenario/hash. Đây là thiết kế target, chưa chạy concurrency/database test.
+
+## Redis event/cache boundary — 2026-09-19
+
+- AI/RAG không kết nối Redis để quyết định identity, tenant, quota, billing hoặc publish. Production client đi qua .NET API; AI chỉ nhận scope đã được cấp và trả request/result/citations/model/usage kỹ thuật.
+- Backend ghi transactional outbox trong PostgreSQL rồi dispatcher mới giao Redis Streams; consumer dedup qua event key/payload hash hoặc job/attempt contract và ACK sau commit. Redis Pub/Sub chỉ dùng cho tiến độ không bắt buộc.
+- AI timeout tra trạng thái theo request ID; Redis lỗi không được làm mất ai_request hoặc accounting. pgvector/PostgreSQL là nguồn dữ liệu retrieval được cấp scope; Redis cache chỉ là tối ưu đọc do backend kiểm soát.
+- AI không có quyền enqueue/replay/claim/mark/fail outbox hoặc ghi receipt/accounting. Tenant enqueue/replay/receipt và requeue do backend executor gọi; tenant event hiện chỉ là `ProcessingJobRequested` + schema `1`, system event có allowlist và executor riêng; helper nội bộ không cấp cho AI/worker. Message AI/worker không mang sẵn lease, và payload/hash/scope phải khớp outbox trước khi handler tác động.
