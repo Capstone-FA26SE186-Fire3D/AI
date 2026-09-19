@@ -13,7 +13,7 @@
 - Vector store production là `pgvector` trong Supabase PostgreSQL. ChromaDB chỉ còn là implementation prototype cần migration có kế hoạch; không thêm dữ liệu production mới dựa trên ChromaDB.
 - LLM sẽ chọn một trong OpenAI API hoặc Google Gemini API (khóa/cấu hình qua Google AI Studio). Giữ provider adapter, output schema, safety gate và evaluation dùng chung; chưa được mô tả cả hai là production provider.
 - RAG data access phải tenant-scoped trên cả metadata filter và vector query. Không đưa Supabase service-role key hoặc LLM key vào FE/Mobile; không gửi raw IFC hay dữ liệu thừa sang LLM.
-- Raw IFC/package dùng AWS S3 theo signed URL do backend cấp. Supabase Auth không nằm trong stack; identity dùng Firebase Authentication và quyền nghiệp vụ do BE/PostgreSQL quyết định.
+- Raw IFC/package dùng AWS S3 theo signed URL do backend cấp. Supabase Auth không nằm trong stack; BE quản lý email/password và FET3D session, Firebase chỉ xác minh Google Sign-In, còn quyền nghiệp vụ do BE/PostgreSQL quyết định.
 - IFC pipeline dùng lại cho nhiều Building: IfcOpenShell/IfcConvert trích geometry, tầng/phòng/cửa/cầu thang/GlobalId và quality issues; Blender chạy script tối ưu; Unity Editor build worker tạo collider/NavMesh/runtime package. Python không tự biến GLB thành Unity AssetBundle nếu thiếu Unity Editor worker.
 - Artifact/facts phải immutable theo revision, giữ units/coordinate system/GlobalId, checksum và S3 key. Thiếu semantic hoặc connectivity tạo issue để OrganizationUser sửa/xác nhận; thay IFC tạo revision mới, còn thay scenario dùng lại geometry tương thích.
 - RAG có hai audience: `organization` (giải thích BIM/PCCC, gợi ý scenario draft có nguồn) và `trainee` (hỏi đáp kiến thức, Learn, debrief cá nhân). AI chỉ trả draft/evidence; không tự sửa editor, publish, route hoặc scoring. Kho common và organization phải tenant/scope-filter riêng.
@@ -58,3 +58,23 @@ Khi có checkout Docs bên cạnh, đọc `Docs/fire_evacuation_bim_rag_pccc.md`
 - Backend ghi transactional outbox trong PostgreSQL rồi dispatcher mới giao Redis Streams; consumer dedup qua event key/payload hash hoặc job/attempt contract và ACK sau commit. Redis Pub/Sub chỉ dùng cho tiến độ không bắt buộc.
 - AI timeout tra trạng thái theo request ID; Redis lỗi không được làm mất ai_request hoặc accounting. pgvector/PostgreSQL là nguồn dữ liệu retrieval được cấp scope; Redis cache chỉ là tối ưu đọc do backend kiểm soát.
 - AI không có quyền enqueue/replay/claim/mark/fail outbox hoặc ghi receipt/accounting. Tenant enqueue/replay/receipt và requeue do backend executor gọi; tenant event hiện chỉ là `ProcessingJobRequested` + schema `1`, system event có allowlist và executor riêng; helper nội bộ không cấp cho AI/worker. Message AI/worker không mang sẵn lease, và payload/hash/scope phải khớp outbox trước khi handler tác động.
+
+## FET3D account and commercial boundary — 2026-09-19
+
+- AI chỉ nhận audience/scope đã được BE cấp. Google onboarding, username, organization profile, Building entitlement, discount, payment và notification không thuộc AI service.
+- Learn Hidden có thể retrieval khi backend xác nhận pointer/source; Deleted, Unpublished và cache/index cũ không được truy xuất. AI không quyết định entitlement, giá/discount, reminder, accounting hoặc publish.
+
+## Learn blog boundary — 2026-09-19
+
+- Learn là blog công khai theo tình huống gồm `Article`, `Tip` và `Video`, tách khỏi Unity training/session. `PlatformAdmin` quản trị Draft/Published và trạng thái Unpublished/Published/Hidden/Deleted; Learn không có bước duyệt riêng. Published/Hidden có thể retrieval khi pointer/source hợp lệ; Deleted/Unpublished bị loại.
+- Video YouTube/Facebook/TikTok chỉ là external media metadata đã được backend allowlist/canonicalize; AI không tự tải video. Chỉ transcript/tóm tắt đã được Admin duyệt mới được index, có citation đúng Learn post/version.
+- AI nhận `learn_context` đã được BE cấp scope, không đọc Draft/Unpublished/Deleted hoặc corpus Organization qua luồng Trainee. Hidden không public nhưng có thể làm nguồn RAG. AI trả answer/citation; không tạo hoặc publish Learn content.
+
+## Final review corrections — 2026-09-19
+
+- AI never owns identity onboarding, username, profile/avatar, organization billing, discount, entitlement or reminder data. It receives a scope-authorized request from .NET and returns technical usage/evidence only.
+- Hidden Learn may be retrieved only after backend confirms the current Published pointer and source policy; Deleted, Unpublished, stale index/cache and old conversation context are excluded from new retrieval. AI cannot publish or mutate Learn.
+
+## Recovery boundary correction — 2026-09-19
+
+- AI never calls session completion, processing provenance registration, quota accounting or AI billing gates. The .NET service owns those transactions. FastAPI returns technical result/evidence; backend records it and reconciles by request ID.

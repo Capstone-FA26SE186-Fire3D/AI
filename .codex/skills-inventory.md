@@ -13,7 +13,7 @@ generated `skills-lock.json` records the source paths and content hashes.
 - `fastapi-templates` — `wshobson/agents`; FastAPI scaffolding patterns.
 - `rag-implementation` — `wshobson/agents`; RAG/vector-search implementation, including Chroma-oriented patterns.
 
-`rag-implementation` là tài liệu tham khảo, không quyết định storage. Kiến trúc production của Fire3D dùng Supabase PostgreSQL + `pgvector`; mọi pattern Chroma phải được chuyển nghĩa và review trước khi áp dụng.
+`rag-implementation` là tài liệu tham khảo, không quyết định storage. Kiến trúc production của FET3D dùng Supabase PostgreSQL + `pgvector`; mọi pattern Chroma phải được chuyển nghĩa và review trước khi áp dụng.
 
 ## IFC và ranh giới artifact
 
