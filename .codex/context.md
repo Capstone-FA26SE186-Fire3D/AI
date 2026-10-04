@@ -1,5 +1,18 @@
 # Context — AI
 
+## Contract sản phẩm hiện hành — Docs v7
+
+Nguồn chuẩn: [v7 contract](../../Docs/schema_v7_contract.md) và [requirements](../../Docs/fire_evacuation_requirements.md). Các đoạn contract cũ bên dưới đã được hiệu chỉnh theo v7; đây là thiết kế đích, không phải bằng chứng implementation hoặc deployment đã đạt.
+
+- AI chỉ nhận scope đã được .NET authorize; Organization Library (template/rubric/metadata thiết bị do PlatformAdmin quản lý) tách khỏi Learn public. Organization tự soạn hoặc dùng template tùy chọn, AI chỉ hỗ trợ draft trong tenant của tác giả, không tự lưu/publish.
+- Scenario/rubric version phải được PlatformAdmin duyệt trước publish. Submit đóng băng content hash; sửa phải tạo version/review mới. IFC QA/ConfirmForTraining chỉ là readiness kỹ thuật. Upload scenario không tự biến thành corpus.
+- Learner RAG chỉ index snapshot đúng ba trường `name`, `objectives`, `instructions` của scenario Approved + Published. Retrieval luôn recheck tenant, quyền Building/service hiện tại; loại draft, rubric, đáp án và IFC/BIM private. Organization draft assistance không phải learner corpus.
+- Building Private mặc định: participation code cấp grant gắn account và `access_revision`; rotate/revoke code hoặc đổi visibility vô hiệu grant cũ. Public yêu cầu Trainee đăng nhập; QR không cấp quyền. Sau mất quyền chỉ còn Common và giải thích kết quả cá nhân đã lưu, không retrieval Building/scenario mới.
+- Learn scope phải có cả `learn_post_id` và published `learn_version_id`. Post Hidden không public nhưng có thể RAG nếu published pointer/source hợp lệ; Deleted/Unpublished bị loại kể cả index/cache còn dữ liệu. Library không tự thành Learn/Common.
+- Organization AI quota trả trước, pooled từ gói Building 6/12 tháng và top-up đã thanh toán; hết quota chặn request tính phí mới. Không overage, consent overage, AI billing period hoặc nợ trả sau. Trainee có quota ngày riêng, không trừ quỹ Organization. BE reserve/settle/release idempotent; AI chỉ trả evidence/usage kỹ thuật.
+- AI bị chặn trong Assessment, không chặn chung mọi mode gameplay. Trainee tự chọn Learn/Guided Drill/Assessment, không prerequisite, retry không giới hạn, không certificate. Backend chấm rubric/version đã pin; Unity gửi metrics, AI không quyết định đạt/chưa đạt.
+- Giá, đơn vị/lượng quota, expiry/rollover và ngưỡng rubric là cấu hình/chính sách chưa chốt; không tự đặt con số. Gợi ý bố trí thiết bị/PCCC không phải chứng nhận hay hướng dẫn ứng phó khẩn cấp thực tế.
+
 ## Hiện trạng đã kiểm tra
 
 - Code ở [rag-api](../rag-api/README.md): Python, FastAPI, ChromaDB, OpenAI SDK; đây là trạng thái prototype hiện có, không phải storage/provider production đã chốt.
@@ -18,11 +31,11 @@
 - Artifact/facts phải immutable theo revision, giữ units/coordinate system/GlobalId, checksum và S3 key. Thiếu semantic hoặc connectivity tạo issue để OrganizationUser sửa/xác nhận; thay IFC tạo revision mới, còn thay scenario dùng lại geometry tương thích.
 - RAG có hai audience: `organization` (giải thích BIM/PCCC, gợi ý scenario draft có nguồn) và `trainee` (hỏi đáp kiến thức, Learn, debrief cá nhân). AI chỉ trả draft/evidence; không tự sửa editor, publish, route hoặc scoring. Kho common và organization phải tenant/scope-filter riêng.
 - Output phải phân biệt `KnowledgeAnswer` (câu trả lời kiến thức cho OrganizationUser/Trainee, citation nguồn chung bắt buộc) và `ScenarioDraft` (chỉ khi OrganizationUser yêu cầu tạo cấu hình scenario, trạng thái `NeedsUserEdit`). `InsufficientEvidence` và `RejectedBySafetyGate` là trạng thái riêng; `NeedsUserEdit` không áp dụng cho KnowledgeAnswer. BIM anchor chỉ bắt buộc khi output dùng BIM facts. Kiểm tra chuyên môn nếu cần là policy/assignment, không tạo thêm system role.
-- AI/RAG là service Python/FastAPI triển khai riêng trên Azure; Container Apps là phương án triển khai đề xuất, chưa phải SKU/hạ tầng đã tạo. Production client gọi `.NET API`; BE gửi request/idempotency ID, canonical input hash, audience, allowed scope và source/revision version rồi gọi AI nội bộ. AI trả `request_id`, response status/type, citations/source version, BIM anchors khi có, model/version và usage kỹ thuật; AI không trả overage/đơn giá và không sở hữu billing.
+- AI/RAG là service Python/FastAPI triển khai riêng trên Azure; Container Apps là phương án triển khai đề xuất, chưa phải SKU/hạ tầng đã tạo. Production client gọi `.NET API`; BE gửi request/idempotency ID, canonical input hash, audience, allowed scope và source/revision version rồi gọi AI nội bộ. AI trả `request_id`, response status/type, citations/source version, BIM anchors khi có, model/version và usage kỹ thuật; AI không quyết định giá/quota và không sở hữu billing.
 - OneShield/OnePortal (iNET) là lớp edge phía trước Nginx trong kiến trúc đích; AI service chỉ nhận request nội bộ từ backend sau khi backend kiểm tra identity, tenant, scope và quota. Nginx vẫn là reverse proxy trước .NET API; edge không thay thế authorization.
 - Timeout phải tra cứu `GET /api/ai/requests/{requestId}` trước retry; cùng idempotency key/cùng input trả kết quả cũ, khác input bị từ chối. ChromaDB/OpenAI vẫn là prototype; production dùng pgvector và một provider LLM sau evaluation.
 - IFC processing và playtest orchestration phải trả logical job/attempt/lease/toolchain/artifact/hash/QA provenance. Artifact/validation pin attempt hiện hành; kết quả hết lease không được ghi đè. Organization playtest dùng draft/version package đã verify; start chỉ được phép với Trial còn quota thử hoặc Building entitlement Active, không tạo learner session và không mở bằng QR Trainee. ValidationRun/ValidationIssue là bằng chứng gate trước publish/playtest.
-- AI service phải trả usage metadata/request id cho BE; quota, pooled reservation allocation, overage, consent, policy/đơn giá snapshot và idempotency thuộc backend, không tự tính ở AI/FE/Mobile. AI không gọi reserve/settle/close billing và không có quyền accounting DML. BE ghi result qua contract có kiểm tra trạng thái/evidence; cùng request ID cùng evidence replay là no-op, evidence khác là conflict. Chuyển ChromaDB → pgvector là công việc triển khai tiếp theo, chưa hoàn tất trong API prototype.
+- AI service phải trả usage metadata/request id cho BE; quota trả trước, pooled reservation allocation, policy snapshot và idempotency thuộc backend, không tự tính ở AI/FE/Mobile. AI không gọi reserve/settle quota hoặc provision payment và không có quyền accounting DML. BE ghi result qua contract có kiểm tra trạng thái/evidence; cùng request ID cùng evidence replay là no-op, evidence khác là conflict. Chuyển ChromaDB → pgvector là công việc triển khai tiếp theo, chưa hoàn tất trong API prototype.
 - IFC/Blender worker và Unity Editor build worker chạy độc lập với interactive RAG, nhận job qua outbox/queue có lease, attempt, input hash, artifact/hash và validation provenance. Worker không ghi payment, entitlement hoặc publish trực tiếp.
 
 ## Chạy và kiểm tra
@@ -41,12 +54,12 @@ Khi có checkout Docs bên cạnh, đọc `Docs/fire_evacuation_bim_rag_pccc.md`
 ## Invariant bổ sung sau review — 2026-09-18
 
 - AI request được backend authorize ngay khi INSERT theo audience, user, tenant, Building và policy version; request mới vào `Accepted` không có result. Policy, identity và canonical input hash bất biến sau tiếp nhận. User bị khóa sau đó không chặn reconcile.
-- FastAPI chỉ trả request/result/citations/model và usage kỹ thuật. Backend sở hữu quota, consent, overage, đơn giá và settlement; timeout phải tra `GET /api/ai/requests/{requestId}` trước retry.
+- FastAPI chỉ trả request/result/citations/model và usage kỹ thuật. Backend sở hữu quota trả trước, giá gói/top-up và reserve/settle request; timeout phải tra `GET /api/ai/requests/{requestId}` trước retry.
 - IFC/Blender/Unity worker dùng logical job `input_hash`; claim lease hiện hành trả Busy, job thành công replay được, attempt hết lease bị fencing. Kết quả phải khớp attempt/artifact/validation hiện hành; worker không publish.
 
 ## Contract hardening — 2026-09-18
 
-- AI request chỉ tạo ở `Accepted` sau khi BE kiểm tra audience/tenant/Building/policy; AI không ghi sẵn result/citation/model/usage và không sửa terminal result. AI trả usage kỹ thuật, request ID, citations/model/version; BE sở hữu quota, overage, consent và amount.
+- AI request chỉ tạo ở `Accepted` sau khi BE kiểm tra audience/tenant/Building/policy; AI không ghi sẵn result/citation/model/usage và không sửa terminal result. AI trả usage kỹ thuật, request ID, citations/model/version; BE sở hữu quota trả trước và payment amount.
 - Timeout dùng request-status/reconcile, không hoàn reservation rồi chạy lại mù. Policy version và source/version đã áp dụng là immutable history.
 - Worker claim/renew/accept/fail/requeue khóa logical job trước attempt. Claim trả `Claimed`, `Busy`, `AlreadyCompleted`, `NotClaimable` hoặc `Conflict`; chỉ `Claimed` cấp lease token mới. Requeue `Failed` idempotent qua outbox; `Cancelled` terminal.
 - Artifact manifest do worker tạo phải có manifest hash và build target; package provenance phải khớp artifact/validation pin trước khi BE cho publish hoặc playtest.
@@ -68,7 +81,7 @@ Khi có checkout Docs bên cạnh, đọc `Docs/fire_evacuation_bim_rag_pccc.md`
 
 - Learn là blog công khai theo tình huống gồm `Article`, `Tip` và `Video`, tách khỏi Unity training/session. `PlatformAdmin` quản trị Draft/Published và trạng thái Unpublished/Published/Hidden/Deleted; Learn không có bước duyệt riêng. Published/Hidden có thể retrieval khi pointer/source hợp lệ; Deleted/Unpublished bị loại.
 - Video YouTube/Facebook/TikTok chỉ là external media metadata đã được backend allowlist/canonicalize; AI không tự tải video. Chỉ transcript/tóm tắt đã được Admin duyệt mới được index, có citation đúng Learn post/version.
-- AI nhận `learn_context` đã được BE cấp scope, không đọc Draft/Unpublished/Deleted hoặc corpus Organization qua luồng Trainee. Hidden không public nhưng có thể làm nguồn RAG. AI trả answer/citation; không tạo hoặc publish Learn content.
+- AI nhận `learn_context` đã được BE cấp scope, không đọc Draft/Unpublished/Deleted hoặc kho nội bộ Organization qua luồng Trainee; snapshot scenario learner-safe theo v7 là nguồn riêng được cấp quyền. Hidden không public nhưng có thể làm nguồn RAG. AI trả answer/citation; không tạo hoặc publish Learn content.
 
 ## Final review corrections — 2026-09-19
 
@@ -77,4 +90,4 @@ Khi có checkout Docs bên cạnh, đọc `Docs/fire_evacuation_bim_rag_pccc.md`
 
 ## Recovery boundary correction — 2026-09-19
 
-- AI never calls session completion, processing provenance registration, quota accounting or AI billing gates. The .NET service owns those transactions. FastAPI returns technical result/evidence; backend records it and reconciles by request ID.
+- AI never calls session completion, processing provenance registration, quota accounting or prepaid provisioning gates. The .NET service owns those transactions. FastAPI returns technical result/evidence; backend records it and reconciles by request ID.
