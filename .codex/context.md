@@ -91,3 +91,15 @@ Khi có checkout Docs bên cạnh, đọc `Docs/fire_evacuation_bim_rag_pccc.md`
 ## Recovery boundary correction — 2026-09-19
 
 - AI never calls session completion, processing provenance registration, quota accounting or prepaid provisioning gates. The .NET service owns those transactions. FastAPI returns technical result/evidence; backend records it and reconciles by request ID.
+
+## IFC ingestion, hiển thị và tương tác — 2026-10-15
+
+Nguồn: [IFC ingestion, hiển thị và tương tác](../../Docs/ifc_ingestion_visual_interaction.md) (Docs PR #15/#16). Đây là **đề xuất thiết kế** có bằng chứng spike cục bộ trên 32 file IFC công khai; chưa có worker, API, migration hay code Unity tương ứng. Mục 4 (nhiều IFC cho một revision), ngân sách tam giác và preset vật liệu còn chờ team chốt.
+
+Quy tắc chung đã chốt với nhóm: chỉ nhận IFC (RVT tự xuất IFC ở ngoài); **IFC có thiết bị PCCC/nguồn nước thì pipeline tự tạo, không có thì OrganizationUser đặt trong editor**; mô hình 3D thiết bị luôn lấy từ thư viện dùng chung (có thể tạo bằng công cụ AI như Tripo rồi dọn lưới), không lấy từ IFC; IFC hầu như không mang màu/texture dùng được nên vật liệu lấy từ thư viện PBR CC0 theo preset.
+
+Phụ trách: Nguyễn Phúc Lộc (AI/RAG). Việc liên quan repo này:
+
+- Docs ghi IFC worker thuộc "repo AI/BE tùy chốt" (mục 5.8). Nếu worker đặt ở đây, áp dụng toàn bộ mục 5.1–5.3 và mã issue mục 5.9; nếu ở BE, repo này chỉ đọc facts đã kiểm soát quyền.
+- RAG facts: tên phòng nằm ở `IfcSpace.LongName` với Revit (`Name` thường là số phòng); dùng từ điển đa ngôn ngữ (Đức, Na Uy, Hà Lan, Anh). Thiết bị suy luận từ tên có `confidence` thấp chỉ là gợi ý, không phải fact cho tới khi OrganizationUser xác nhận.
+- Scenario draft do AI gợi ý được phép đề xuất vị trí thiết bị/nguồn lửa, nhưng phải dùng `catalogKey` đã có trong catalog và người dùng tự sửa/chấp nhận; không suy ra tác dụng an toàn (khăn ướt, che mũi…) ngoài nội dung đã duyệt.
