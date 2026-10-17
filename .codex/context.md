@@ -103,3 +103,17 @@ Phụ trách: Nguyễn Phúc Lộc (AI/RAG). Việc liên quan repo này:
 - Docs ghi IFC worker thuộc "repo AI/BE tùy chốt" (mục 5.8). Nếu worker đặt ở đây, áp dụng toàn bộ mục 5.1–5.3 và mã issue mục 5.9; nếu ở BE, repo này chỉ đọc facts đã kiểm soát quyền.
 - RAG facts: tên phòng nằm ở `IfcSpace.LongName` với Revit (`Name` thường là số phòng); dùng từ điển đa ngôn ngữ (Đức, Na Uy, Hà Lan, Anh). Thiết bị suy luận từ tên có `confidence` thấp chỉ là gợi ý, không phải fact cho tới khi OrganizationUser xác nhận.
 - Scenario draft do AI gợi ý được phép đề xuất vị trí thiết bị/nguồn lửa, nhưng phải dùng `catalogKey` đã có trong catalog và người dùng tự sửa/chấp nhận; không suy ra tác dụng an toàn (khăn ướt, che mũi…) ngoài nội dung đã duyệt.
+
+## Unity runtime và pipeline bake — 2026-10-17
+
+Quyết định của trưởng nhóm, đã vào Docs (PR #21–#24) và issue:
+- Unity runtime đã chạy trong Editor 6000.6.3f1: mô phỏng lửa/khói/nhiệt + NPC bằng **Entities**, camera third-person, tương tác theo ngữ cảnh, HUD, telemetry, nạp AssetBundle. APK demo build được (IL2CPP/ARM64). Code đang ở nhánh `feature/third-person-player-camera` của repo Unity, chưa lên `develop`.
+- **Ưu tiên hình ảnh:** Unity build worker chạy batch trên **Azure VM Windows do BE vận hành** (BE#110). Worker import GLB, gán material theo `libraryKey`, bake lightmap + light/reflection probe cho 2 bộ ánh sáng (bình thường, mất điện), xuất AssetBundle theo tầng + `manifest.json` (`fet3d.package/1`, SHA-256 từng file). Không dùng Addressables.
+- Texture PBR chỉ nằm trong project Unity (bundle `fet3d-materials` cài sẵn trong app). GLB chỉ mang `libraryKey`; BE và worker không lưu file ảnh.
+- `IFC_EXIT_UNKNOWN` = phương án B, chỉ dùng `door.exit` (BE#100).
+- Event Unity gửi (BE#101): `eventId` là GUID, `schemaVersion` = `"1"` (chuỗi), `objectId` = id object trong `fet3d.editor/1`; core `Moved`/`HazardExposure` mỗi 5 giây; Unity không chấm Đạt/Chưa đạt.
+
+Việc của repo AI (IFC/Blender worker, AI#8):
+- Đầu ra cho Unity build worker: GLB **mỗi tầng** theo `storeys[].chunk` (hoặc một `building.glb`). **Tên node = IFC GlobalId**, tên material trong GLB là key của `building_metadata.materials` (`libraryKey`, tùy chọn `tint`, `variant`). UV0 chiếu box theo mét, UV1 cho lightmap không chồng lấn, **không nhúng texture**.
+- `building_metadata.json` (`fet3d.building/1`): `storeys` (`id`, `elevation`, `chunk`), `spaces` (`bbox`, `category`; Unity sinh đèn và probe theo phòng), `portals` (cửa: `ifcGlobalId`, `fireExit`, `exitInferred`; Unity gắn bản lề và biển EXIT), `interactables`.
+- QA: `IFC_EXIT_UNKNOWN` báo mức Warning (BE#100). Tọa độ Unity dùng y theo mặt sàn của tầng.
