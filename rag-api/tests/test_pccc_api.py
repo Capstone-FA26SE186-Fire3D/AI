@@ -1,6 +1,8 @@
 from fastapi.testclient import TestClient
 
-from app import main
+from app.core.config import Settings
+from app.legacy import routes
+from app.main import create_app
 
 
 class EmptyStore:
@@ -9,7 +11,7 @@ class EmptyStore:
 
 
 def test_unapproved_knowledge_is_rejected() -> None:
-    client = TestClient(main.app)
+    client = TestClient(create_app(Settings(legacy_routes_enabled=True)))
 
     response = client.post(
         "/pccc/knowledge-documents",
@@ -22,7 +24,7 @@ def test_unapproved_knowledge_is_rejected() -> None:
 
 
 def test_bim_inspection_does_not_call_ai() -> None:
-    client = TestClient(main.app)
+    client = TestClient(create_app(Settings(legacy_routes_enabled=True)))
 
     response = client.post(
         "/pccc/bim/inspect",
@@ -34,8 +36,8 @@ def test_bim_inspection_does_not_call_ai() -> None:
 
 
 def test_analysis_without_approved_sources_returns_400(monkeypatch) -> None:
-    monkeypatch.setattr(main, "store", EmptyStore())
-    client = TestClient(main.app)
+    monkeypatch.setattr(routes, "get_store", lambda: EmptyStore())
+    client = TestClient(create_app(Settings(legacy_routes_enabled=True)))
 
     response = client.post(
         "/pccc/analyses",
