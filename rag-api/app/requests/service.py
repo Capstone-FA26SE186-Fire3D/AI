@@ -15,6 +15,8 @@ from app.v2.schemas import ROUTES, AdapterRequest, AdapterResponse
 
 log = logging.getLogger(__name__)
 
+TERMINAL_RECOMMENDATION = "Không thể hoàn tất yêu cầu sau nhiều lần thử; cần kiểm tra lại nguồn."
+
 _USAGE_SUM_FIELDS = ("provider_units", "input_tokens", "output_tokens")
 
 
@@ -32,6 +34,10 @@ def _unavailable() -> tuple[int, dict]:
 
 def _outcome_unknown() -> tuple[int, dict]:
     return 500, error("AI_OUTCOME_UNKNOWN", "Outcome unknown; reconcile with GET /v2/requests/{request_id}")
+
+
+def _in_progress() -> tuple[int, dict]:
+    return 409, error("AI_REQUEST_IN_PROGRESS", "Request is already being processed")
 
 
 def _sum_usage(previous: dict | None, current: dict) -> dict:
@@ -54,15 +60,18 @@ class RequestService:
 
     @contextmanager
     def _request_lock(self, request_id: str):
-        """In-process per-request_id lock. It only narrows races inside one process;
-        correctness across processes comes from the store's primary key."""
+        """Non-blocking in-process per-request_id lock; yields False when another submit holds it.
+        It only narrows races inside one process; correctness across processes comes from the
+        store's primary key."""
         with self._locks_guard:
             entry = self._locks.setdefault(request_id, [threading.Lock(), 0])
             entry[1] += 1
+        acquired = entry[0].acquire(blocking=False)
         try:
-            with entry[0]:
-                yield
+            yield acquired
         finally:
+            if acquired:
+                entry[0].release()
             with self._locks_guard:
                 entry[1] -= 1
                 if entry[1] == 0:
@@ -96,7 +105,7 @@ class RequestService:
             return 409, error("AI_REQUEST_CONFLICT", "request_id was already used with a different input")
         if rec.status == "Completed" and rec.response is not None:
             return 200, rec.response
-        return 409, error("AI_REQUEST_IN_PROGRESS", "Request is already being processed")
+        return _in_progress()
 
     def _completed_or_unknown(self, request_id: str) -> tuple[int, dict]:
         """complete() lost the race: return what the other worker stored."""
@@ -111,7 +120,9 @@ class RequestService:
         rejected = self._precheck(route_key, req)
         if rejected:
             return rejected
-        with self._request_lock(req.request_id):
+        with self._request_lock(req.request_id) as acquired:
+            if not acquired:
+                return _in_progress()
             return self._submit_locked(req)
 
     def _submit_locked(self, req: AdapterRequest) -> tuple[int, dict]:
@@ -124,7 +135,7 @@ class RequestService:
             if not self.store.insert_received(rid, req.operation, req.audience, req.input_hash, payload):
                 existing = self.store.get(rid)  # lost the PK race
                 if existing is None:
-                    return 409, error("AI_REQUEST_IN_PROGRESS", "Request is already being processed")
+                    return _in_progress()
                 return self._dedup(existing, req.input_hash)
         except Exception:
             log.exception("request store unavailable", extra={"request_id": rid})
@@ -197,8 +208,10 @@ class RequestService:
         completed = 0
         seen: set[str] = set()
         while True:
-            rec = self.store.claim_stale(cutoff)
-            if rec is None or rec.request_id in seen:
+            # Exclude rows already handled in this pass so a failing row is neither re-run
+            # nor re-claimed (which would burn an extra attempt) within the same pass.
+            rec = self.store.claim_stale(cutoff, exclude=seen)
+            if rec is None:
                 break
             seen.add(rec.request_id)
             if self._recover_one(rec):
@@ -206,6 +219,10 @@ class RequestService:
         return completed
 
     def _recover_one(self, rec: RequestRecord) -> bool:
+        cap = self.deps.settings.recovery_max_attempts
+        if rec.attempts > cap:
+            # Never delete: a 404 would make BE refund although a provider call may have happened.
+            return self._complete_terminal(rec, "AI_RECOVERY_ATTEMPTS_EXHAUSTED")
         try:
             req = AdapterRequest.model_validate(rec.payload)
             prepared = self.resolver.prepare(req.sources)
@@ -216,9 +233,39 @@ class RequestService:
             if not self.store.complete(rec.request_id, body, total):
                 log.info("recovered request already completed elsewhere", extra={"request_id": rec.request_id})
                 return False
-        except Exception:
+        except Exception as exc:
+            code = exc.code if isinstance(exc, AdapterRefusal) else "AI_RECOVERY_FAILED"
+            log.exception("recovery attempt failed (%s)", code, extra={"request_id": rec.request_id})
+            if rec.attempts >= cap:
+                return self._complete_terminal(rec, code)
             # Left Processing; the next pass retries once it is stale again.
-            log.exception("recovery attempt failed", extra={"request_id": rec.request_id})
             return False
         log.info("recovered stale request", extra={"request_id": rec.request_id})
         return True
+
+    def _complete_terminal(self, rec: RequestRecord, reason_code: str) -> bool:
+        """Close a row that cannot be recovered with a terminal InsufficientEvidence answer."""
+        payload = rec.payload if isinstance(rec.payload, dict) else {}
+        response_type = payload.get("response_type")
+        if response_type not in ("KnowledgeAnswer", "ScenarioDraft"):
+            response_type = "KnowledgeAnswer"
+        zero = {"provider_units": 0, "input_tokens": 0, "output_tokens": 0, "model_version": "none"}
+        usage = _sum_usage(rec.usage_total, zero)
+        if isinstance(rec.usage_total, dict) and isinstance(rec.usage_total.get("model_version"), str):
+            usage["model_version"] = rec.usage_total["model_version"]
+        body = AdapterResponse(
+            request_id=rec.request_id, response_type=response_type, status="InsufficientEvidence",
+            recommendation=TERMINAL_RECOMMENDATION, scenario_draft=None, bim_anchors=[], citations=[],
+            rule_results=[], confidence="low", assumptions=[],
+            limitations=[f"Không hoàn tất sau {rec.attempts} lần thử (mã {reason_code})."],
+            usage=usage,
+        ).model_dump(mode="json")
+        try:
+            done = self.store.complete(rec.request_id, body, body["usage"])
+        except Exception:
+            log.exception("terminal completion failed", extra={"request_id": rec.request_id})
+            return False
+        if done:
+            log.warning("request closed as InsufficientEvidence after %d attempts (%s)", rec.attempts, reason_code,
+                        extra={"request_id": rec.request_id})
+        return done

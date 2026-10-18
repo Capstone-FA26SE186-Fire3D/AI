@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Collection, Literal
 
 from sqlalchemy import (
     CHAR,
@@ -166,16 +166,19 @@ class RequestStore:
         with self._engine.begin() as conn:
             conn.execute(delete(self._t).where(self._t.c.request_id == request_id))
 
-    def claim_stale(self, cutoff: datetime) -> RequestRecord | None:
-        """Atomically take over one stale Processing row (compare-and-set)."""
+    def claim_stale(self, cutoff: datetime, exclude: Collection[str] = ()) -> RequestRecord | None:
+        """Atomically take over one stale Processing row (compare-and-set), skipping `exclude` ids."""
         cutoff = _utc(cutoff)
         t = self._t
+        query = (
+            select(t.c.request_id, t.c.processing_started_at)
+            .where(t.c.status == "Processing", t.c.processing_started_at < cutoff)
+            .order_by(t.c.processing_started_at)
+        )
+        if exclude:
+            query = query.where(t.c.request_id.not_in(list(exclude)))
         with self._engine.connect() as conn:
-            candidates = conn.execute(
-                select(t.c.request_id, t.c.processing_started_at)
-                .where(t.c.status == "Processing", t.c.processing_started_at < cutoff)
-                .order_by(t.c.processing_started_at)
-            ).all()
+            candidates = conn.execute(query).all()
         for cand in candidates:
             now = _now()
             with self._engine.begin() as conn:

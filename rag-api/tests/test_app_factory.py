@@ -28,6 +28,12 @@ def test_production_requires_api_key() -> None:
         create_app(Settings(environment="production", ai_api_key=""))
 
 
+@pytest.mark.parametrize("environment", ["staging", "test", "Production"])
+def test_non_development_requires_api_key(environment: str) -> None:
+    with pytest.raises(RuntimeError, match="AI_API_KEY"):
+        create_app(Settings(environment=environment, ai_api_key="", knowledge_database_url="postgresql://x/y"))
+
+
 @pytest.mark.parametrize("name", ["scenario-state", "geometry-metadata", "building-metadata"])
 def test_vendored_contract_fixtures_validate(name: str) -> None:
     schema = json.loads((CONTRACTS / f"{name}.schema.json").read_text(encoding="utf-8"))

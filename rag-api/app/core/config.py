@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     max_output_tokens: int = 1500
     request_stale_seconds: int = 300
     recovery_interval_seconds: int = 30
+    recovery_max_attempts: int = 3
     source_max_bytes: int = 20_971_520
     source_fetch_timeout_seconds: float = 20
     legacy_routes_enabled: bool = False

@@ -120,9 +120,37 @@ def test_concurrent_duplicate_posts_call_provider_once(db_url):
     results = _race(lambda: service.submit("organization/answer", req),
                     lambda: service.submit("organization/answer", req))
     assert len(provider.calls) == 1
-    statuses = sorted(s for s, _ in results)
-    assert statuses[0] == 200
-    assert statuses[1] in (200, 409)
+    codes = sorted((s, b.get("code")) for s, b in results)
+    assert codes[0] == (200, None)
+    assert codes[1] in ((200, None), (409, "AI_REQUEST_IN_PROGRESS"))
+
+
+def test_in_process_duplicate_does_not_wait_and_gets_409(db_url):
+    in_provider = threading.Event()
+    release = threading.Event()
+
+    def gated(payload):
+        in_provider.set()
+        assert release.wait(5)
+        return _cite(payload)
+
+    service, provider = _service(db_url, gated)
+    req = AdapterRequest.model_validate(_body())
+    first = []
+    t = threading.Thread(target=lambda: first.append(service.submit("organization/answer", req)))
+    t.start()
+    try:
+        assert in_provider.wait(5)
+        started = time.perf_counter()
+        status, body = service.submit("organization/answer", req)
+        assert time.perf_counter() - started < 1  # non-blocking
+        assert (status, body["code"]) == (409, "AI_REQUEST_IN_PROGRESS")
+    finally:
+        release.set()
+        t.join(5)
+    assert first[0][0] == 200
+    assert len(provider.calls) == 1
+    assert service.submit("organization/answer", req) == (200, first[0][1])  # replay after completion
 
 
 def test_concurrent_posts_across_processes_rely_on_primary_key(db_url):
@@ -181,3 +209,50 @@ def test_recovery_loop_ticks_and_stops():
 
     failing = RecoveryLoop(lambda: (_ for _ in ()).throw(RuntimeError("no provider")), 0.05)
     assert failing.tick() == 0  # unbuildable service is skipped, not fatal
+
+
+def _stale_row(service, rid, body, attempts):
+    store = service.store
+    store.insert_received(rid, body["operation"], body["audience"], body["input_hash"], body)
+    store.mark_processing(rid)
+    with store._engine.begin() as conn:
+        conn.execute(update(store._t).where(store._t.c.request_id == rid).values(attempts=attempts))
+
+
+_UNAVAILABLE_SOURCE = [{"kind": "KnowledgeSource", "document_id": "doc-x", "document_version": "v1"}]
+
+
+def _future(service):
+    return datetime.now(timezone.utc) + timedelta(seconds=service.deps.settings.request_stale_seconds + 5)
+
+
+def test_recovery_past_cap_completes_insufficient_evidence(db_url):
+    service, provider = _service(db_url)
+    _stale_row(service, "capped", _body("capped"), attempts=3)  # claim -> 4 > cap 3
+    assert service.recover_once(_future(service)) == 1
+    assert provider.calls == []  # not re-run past the cap
+    status, body = service.lookup("capped")
+    assert status == 200
+    assert body["status"] == "InsufficientEvidence" and body["confidence"] == "low"
+    assert body["citations"] == [] and body["response_type"] == "KnowledgeAnswer"
+    assert "AI_RECOVERY_ATTEMPTS_EXHAUSTED" in body["limitations"][0]
+    assert body["usage"] == {"provider_units": 0, "input_tokens": 0, "output_tokens": 0, "model_version": "none"}
+    assert service.store.get("capped").status == "Completed"
+
+
+def test_recovery_refusal_on_last_attempt_completes_terminal(db_url):
+    service, provider = _service(db_url)
+    _stale_row(service, "last", _body("last", sources=_UNAVAILABLE_SOURCE), attempts=2)  # claim -> 3 == cap
+    assert service.recover_once(_future(service)) == 1
+    status, body = service.lookup("last")
+    assert status == 200 and body["status"] == "InsufficientEvidence"
+    assert "AI_SOURCE_UNAVAILABLE" in body["limitations"][0]
+
+
+def test_recovery_refusal_before_cap_leaves_processing(db_url):
+    service, provider = _service(db_url)
+    _stale_row(service, "early", _body("early", sources=_UNAVAILABLE_SOURCE), attempts=1)  # claim -> 2 < cap
+    assert service.recover_once(_future(service)) == 0
+    rec = service.store.get("early")
+    assert rec.status == "Processing" and rec.attempts == 2
+    assert service.lookup("early")[0] == 202

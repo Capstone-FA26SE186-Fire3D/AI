@@ -99,3 +99,12 @@ def test_complete_only_from_processing(store):
     assert store.complete("r1", {"a": 2}, {"t": 2}) is False  # no overwrite
     rec = store.get("r1")
     assert rec.response == {"a": 1} and rec.usage_total == {"t": 1}
+
+
+def test_claim_stale_skips_excluded(store):
+    _insert(store, "a")
+    store.mark_processing("a")
+    future = datetime.now(timezone.utc) + timedelta(seconds=1)
+    assert store.claim_stale(future, exclude={"a"}) is None
+    assert store.get("a").attempts == 1
+    assert store.claim_stale(future).request_id == "a"

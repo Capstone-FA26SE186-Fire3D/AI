@@ -66,8 +66,8 @@ class ServiceHolder:
 
 def create_app(settings: Settings | None = None, *, service: "RequestService | None" = None) -> FastAPI:
     settings = settings or get_settings()
-    if settings.environment.lower() == "production" and not settings.ai_api_key:
-        raise RuntimeError("AI_API_KEY must be set when ENVIRONMENT=production")
+    if not _is_development(settings) and not settings.ai_api_key:
+        raise RuntimeError("AI_API_KEY must be set outside development")
     if service is None and not _is_development(settings) and not settings.knowledge_database_url:
         raise RuntimeError("KNOWLEDGE_DATABASE_URL must be set outside development")
     configure_logging()
