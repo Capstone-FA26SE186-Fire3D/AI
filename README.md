@@ -1,4 +1,4 @@
-# Fire3D AI
+# FET3D AI
 
 Code RAG mẫu và hướng dẫn chạy ở [rag-api/README.md](rag-api/README.md).
 
