@@ -75,7 +75,8 @@ def build_sample_ifc(
         run("geometry.assign_representation", f, product=prod, representation=rep)
 
     wall = run("root.create_entity", f, ifc_class="IfcWall", name="Wall 1")
-    place(wall, run("geometry.add_wall_representation", f, context=body, length=5000.0, height=3000.0, thickness=200.0))
+    # add_wall_representation takes SI metres and converts to project units (mm)
+    place(wall, run("geometry.add_wall_representation", f, context=body, length=5.0, height=3.0, thickness=0.2))
     contain(wall, "L1", 0.0, 0.0)
     ids["wall_1"] = wall.GlobalId
 
@@ -122,6 +123,11 @@ def build_sample_ifc(
     place(stair, _box(f, body, 0, 0, 0, 1200.0, 3000.0, 3000.0))
     contain(stair, "L1", 6000.0, 1000.0)
     ids["stair_1"] = stair.GlobalId
+
+    slab = run("root.create_entity", f, ifc_class="IfcSlab", name="Floor L2", predefined_type="FLOOR")
+    place(slab, _box(f, body, 0, 0, 0, 5000.0, 3000.0, 200.0))
+    contain(slab, "L2", 0.0, 0.0)
+    ids["slab_l2"] = slab.GlobalId
 
     f.write(str(path))
     return ids
