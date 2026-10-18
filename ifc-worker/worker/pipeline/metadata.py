@@ -5,6 +5,7 @@ import json
 import logging
 import re
 from functools import lru_cache
+from typing import Iterable
 from pathlib import Path
 
 import jsonschema
@@ -55,11 +56,13 @@ def floors_of(storeys: list[Storey]) -> list[dict]:
     if not storeys:
         return [dict(SYNTHETIC_FLOOR, transform=list(IDENTITY))]
     floors = []
+    seen: set[str] = set()
     for s in storeys:
         t = list(IDENTITY)
         t[13] = _num(s.elevation_m)
         floor = {"id": s.id, "name": (s.name or s.id)[:255], "elevationMeters": _num(s.elevation_m), "transform": t}
-        if valid_global_id(s.ifc_global_id):
+        if valid_global_id(s.ifc_global_id) and s.ifc_global_id not in seen:  # BE rejects duplicate GlobalIds
+            seen.add(s.ifc_global_id)
             floor["ifcGlobalId"] = s.ifc_global_id
         floors.append(floor)
     return floors
@@ -78,58 +81,84 @@ def _resolver(info: IfcModelInfo, storeys: list[Storey]):
     return floor_for, elev
 
 
+_ANCHOR_CLASSES = ("IfcDoor", "IfcStair", "IfcStairFlight", "IfcRamp", "IfcRampFlight")
+
+
 def geometry_metadata(
     info: IfcModelInfo,
     storeys: list[Storey],
     node_map: dict[str, str],
     extra_ids: dict[str, tuple[str, str | None]],
+    *,
+    origin_offset: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    candidate_ids: Iterable[str] = (),
+    qa_ids: Iterable[str] = (),
 ) -> dict:
     """`extra_ids`: GlobalId -> (semanticType, storey id or None) for ids without a GLB node
-    (spaces -> nodeId "space:<id>", anything else -> "meta:<id>")."""
+    (spaces -> nodeId "space:<id>", anything else -> "meta:<id>").
+
+    Entries are ordered by importance before the 100000 cap (BE also uses only the first 5000 as
+    anchors): candidates, doors/stairs/ramps, spaces, QA ids, then every other node.
+    `origin_offset` is the GLB-space shift already subtracted from the meshes (recentring)."""
     floor_for, _ = _resolver(info, storeys)
     by_el = {e.global_id: e for e in info.elements}
     spaces = {s.global_id: s for s in info.spaces}
+    cands = set(candidate_ids)
+    qas = set(qa_ids)
+
+    entries: list[tuple[str, str, str, str | None]] = []
+    for gid, node in node_map.items():
+        el = by_el.get(gid)
+        sem = el.ifc_class if el else (extra_ids.get(gid, ("IfcProduct", None))[0])
+        storey = el.storey_id if el else extra_ids.get(gid, (None, None))[1]
+        entries.append((gid, node, sem, storey))
+    for gid, (sem, storey) in extra_ids.items():
+        if gid in node_map:
+            continue
+        if gid in spaces:
+            entries.append((gid, f"space:{gid}", sem or "IfcSpace", storey or spaces[gid].storey_id))
+        else:
+            el = by_el.get(gid)
+            entries.append((gid, f"meta:{gid}", sem or (el.ifc_class if el else "IfcProduct"),
+                            storey or (el.storey_id if el else None)))
+
+    def rank(entry) -> int:
+        gid, _, sem, _ = entry
+        if gid in cands:
+            return 0
+        if sem.startswith(_ANCHOR_CLASSES):
+            return 1
+        if gid in spaces:
+            return 2
+        if gid in qas:
+            return 3
+        return 4
+
+    entries.sort(key=rank)  # stable
 
     mapping: list[dict] = []
     seen_gids: set[str] = set()
     seen_nodes: set[str] = set()
     skipped = 0
-
-    def add(gid: str, node: str, sem_type: str, storey_id: str | None) -> None:
-        nonlocal skipped
+    for gid, node, sem, storey in entries:
         if gid in seen_gids:
-            return
-        if not valid_global_id(gid) or node in seen_nodes or len(node) > 256 or not _SEMANTIC_TYPE.match(sem_type or ""):
+            continue
+        if (not valid_global_id(gid) or node in seen_nodes or len(node) > 256
+                or not _SEMANTIC_TYPE.match(sem or "") or len(mapping) >= MAX_SEMANTIC):
             skipped += 1
-            return
-        if len(mapping) >= MAX_SEMANTIC:
-            skipped += 1
-            return
+            continue
         seen_gids.add(gid)
         seen_nodes.add(node)
-        mapping.append({"ifcGlobalId": gid, "nodeId": node, "floorId": floor_for(storey_id), "semanticType": sem_type})
-
-    for gid, node in node_map.items():
-        el = by_el.get(gid)
-        sem = el.ifc_class if el else (extra_ids.get(gid, ("IfcProduct", None))[0])
-        storey = el.storey_id if el else extra_ids.get(gid, (None, None))[1]
-        add(gid, node, sem, storey)
-    for gid, (sem, storey) in extra_ids.items():
-        if gid in spaces:
-            add(gid, f"space:{gid}", sem or "IfcSpace", storey or spaces[gid].storey_id)
-        else:
-            el = by_el.get(gid)
-            add(gid, f"meta:{gid}", sem or (el.ifc_class if el else "IfcProduct"),
-                storey or (el.storey_id if el else None))
+        mapping.append({"ifcGlobalId": gid, "nodeId": node, "floorId": floor_for(storey), "semanticType": sem})
     if skipped:
-        log.warning("semanticMapping: skipped %d invalid or duplicate entries", skipped)
+        log.warning("semanticMapping: skipped %d invalid, duplicate or over-cap entries", skipped)
 
     doc = {
         "schemaVersion": "fet3d.editor/1",
         "units": "m",
         "upAxis": "Y",
         "handedness": "right",
-        "coordinateTransform": COORDINATE_TRANSFORM(info.unit_scale),
+        "coordinateTransform": COORDINATE_TRANSFORM(info.unit_scale, origin_offset),
         "floors": floors_of(storeys),
         "semanticMapping": mapping,
     }
@@ -171,10 +200,21 @@ def building_metadata(
     if info.app:
         source["app"] = info.app
 
-    storeys = [{"id": s.id, "ifcGlobalId": s.ifc_global_id, "name": s.name, "elevation": _num(s.elevation_m)}
-               for s in info.storeys]
-    spaces = [{"ifcGlobalId": s.global_id, "name": s.name, "longName": s.long_name, "category": s.category,
-               "storey": floor_for(s.storey_id)} for s in info.spaces[:20000]]
+    storeys, seen_storey = [], set()
+    for s in info.storeys:
+        item = {"id": s.id, "name": s.name, "elevation": _num(s.elevation_m)}
+        if s.ifc_global_id not in seen_storey:
+            seen_storey.add(s.ifc_global_id)
+            item["ifcGlobalId"] = s.ifc_global_id
+        storeys.append(item)
+    spaces, seen_space = [], set()
+    for s in info.spaces:
+        if s.global_id in seen_space:  # keep first; BE rejects duplicates (QA IFC_DUPLICATE_GLOBALID)
+            continue
+        seen_space.add(s.global_id)
+        spaces.append({"ifcGlobalId": s.global_id, "name": s.name, "longName": s.long_name,
+                       "category": s.category, "storey": floor_for(s.storey_id)})
+    spaces = spaces[:20000]
 
     portals = []
     for e in info.elements:

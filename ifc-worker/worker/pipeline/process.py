@@ -10,15 +10,27 @@ import numpy as np
 from worker.gate_client import ClaimResult
 from worker.pipeline.classify import Candidate, classify_element, classify_space, load_keywords
 from worker.pipeline.extract import read_model
-from worker.pipeline.geometry import extract_meshes, placement_of
+from worker.pipeline.geometry import extract_meshes, placement_of, recentre_offset
 from worker.pipeline.glb import build_glb
 from worker.pipeline.metadata import building_metadata, geometry_metadata, valid_global_id
-from worker.pipeline.qa import QaIssue, outcome, run_qa
+from worker.pipeline.qa import MAX_IDS, QaIssue, outcome, run_qa
 from worker.runner import OutputFile
 
 log = logging.getLogger("ifc-worker")
 
 CONFIG = Path(__file__).resolve().parents[2] / "config"
+COORD_LIMIT = 100_000.0  # BE BuildingMetadataValidator rejects position/bbox components beyond this
+
+
+def duplicate_global_ids(info) -> list[str]:
+    """GlobalIds used by more than one storey/space/element (first occurrence order)."""
+    seen: set[str] = set()
+    dupes: list[str] = []
+    for gid in [s.ifc_global_id for s in info.storeys] + [s.global_id for s in info.spaces] +             [e.global_id for e in info.elements]:
+        if gid in seen and gid not in dupes:
+            dupes.append(gid)
+        seen.add(gid)
+    return dupes
 
 
 class UnprocessableIfc(Exception):
@@ -57,6 +69,25 @@ def process_ifc(source: Path, workdir: Path, claim: ClaimResult) -> list[OutputF
             raw_candidates[el.global_id] = c
 
     meshes, report = extract_meshes(model, info, materials)
+
+    # Placements of candidates (GLB metres, before recentring).
+    placements: dict[str, tuple[tuple[float, float, float], float]] = {}
+    for gid in raw_candidates:
+        try:
+            ent = model.by_guid(gid)
+        except RuntimeError:
+            continue
+        placed = placement_of(ent, info.unit_scale)
+        if placed is not None:
+            placements[gid] = placed
+
+    # Recentre: survey/shared coordinates (e.g. VN-2000, hundreds of km) would put the preview far from
+    # the origin and produce positions BE rejects (|n| > 1e5). The shift goes into coordinateTransform.
+    offset = recentre_offset(meshes, [p for p, _ in placements.values()])
+    off = np.asarray(offset, dtype=float)
+    for m in meshes:
+        m.vertices = m.vertices - off
+
     workdir = Path(workdir)
     glb_path = workdir / "preview.glb"
     node_map = build_glb(meshes, info.storeys, glb_path)
@@ -64,24 +95,33 @@ def process_ifc(source: Path, workdir: Path, claim: ClaimResult) -> list[OutputF
     # Interactable positions: mesh bbox, else placement origin; none -> not a candidate.
     mesh_by_id = {m.global_id: m for m in meshes}
     positions: dict[str, tuple[np.ndarray, np.ndarray]] = {}
-    rotations: dict[str, float] = {}
+    rotations = {g: rot for g, (_, rot) in placements.items()}
+    out_of_range: list[str] = []
     for gid in raw_candidates:
-        try:
-            ent = model.by_guid(gid)
-        except RuntimeError:
-            ent = None
-        placed = placement_of(ent, info.unit_scale) if ent is not None else None
-        if placed is not None:
-            rotations[gid] = placed[1]
         mesh = mesh_by_id.get(gid)
         if mesh is not None:
-            positions[gid] = (mesh.vertices.min(axis=0), mesh.vertices.max(axis=0))
-        elif placed is not None:
-            p = np.asarray(placed[0], dtype=float)
-            positions[gid] = (p, p)
+            box = (mesh.vertices.min(axis=0), mesh.vertices.max(axis=0))
+        elif gid in placements:
+            pt = np.asarray(placements[gid][0], dtype=float) - off
+            box = (pt, pt)
+        else:
+            continue
+        if max(np.abs(box[0]).max(), np.abs(box[1]).max(), (box[1] - box[0]).max()) > COORD_LIMIT:
+            out_of_range.append(gid)  # defensive: BE rejects |n| > 1e5 m
+            continue
+        positions[gid] = box
     candidates = {g: c for g, c in raw_candidates.items() if g in positions and valid_global_id(g)}
 
     issues = run_qa(info, candidates, report)
+    if out_of_range:
+        issues.append(QaIssue("IFC_COORDINATES_OUT_OF_RANGE", "Error",
+                              f"{len(out_of_range)} element(s) lie more than {int(COORD_LIMIT)} m from the model centre.",
+                              out_of_range[:MAX_IDS]))
+    dupes = duplicate_global_ids(info)
+    if dupes:
+        issues.append(QaIssue("IFC_DUPLICATE_GLOBALID", "Warning",
+                              f"{len(dupes)} GlobalId(s) are used more than once; only the first occurrence is kept.",
+                              dupes[:MAX_IDS]))
     result = outcome(issues)
 
     materials_used: dict[str, set[str]] = {}
@@ -90,7 +130,12 @@ def process_ifc(source: Path, workdir: Path, claim: ClaimResult) -> list[OutputF
         if m.material_key:
             materials_used.setdefault(m.material_key, set()).update(by_el[m.global_id].material_names)
 
-    space_storey = {s.global_id: s.storey_id for s in info.spaces}
+    space_storey: dict[str, str | None] = {}
+    for sp in info.spaces:
+        space_storey.setdefault(sp.global_id, sp.storey_id)
+    storey_by_gid: dict[str, str] = {}
+    for st in info.storeys:
+        storey_by_gid.setdefault(st.ifc_global_id, st.id)
     extra_ids: dict[str, tuple[str, str | None]] = {}
 
     def note(gid: str) -> None:
@@ -98,6 +143,8 @@ def process_ifc(source: Path, workdir: Path, claim: ClaimResult) -> list[OutputF
             return
         if gid in space_storey:
             extra_ids[gid] = ("IfcSpace", space_storey[gid])
+        elif gid in storey_by_gid:
+            extra_ids[gid] = ("IfcBuildingStorey", storey_by_gid[gid])
         elif gid in by_el:
             extra_ids[gid] = (by_el[gid].ifc_class, by_el[gid].storey_id)
 
@@ -109,7 +156,9 @@ def process_ifc(source: Path, workdir: Path, claim: ClaimResult) -> list[OutputF
         for gid in i.ifc_global_ids:
             note(gid)
 
-    geo_md = geometry_metadata(info, info.storeys, node_map, extra_ids)
+    qa_ids = [g for i in issues for g in i.ifc_global_ids]
+    geo_md = geometry_metadata(info, info.storeys, node_map, extra_ids, origin_offset=offset,
+                               candidate_ids=list(candidates), qa_ids=qa_ids)
     bld_md = building_metadata(info, candidates, positions, materials_used, issues, claim.source_hash, rotations)
 
     bld_path = workdir / "building_metadata.json"

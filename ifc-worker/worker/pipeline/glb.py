@@ -10,7 +10,7 @@ from trimesh.visual import TextureVisuals
 from trimesh.visual.material import PBRMaterial
 
 from worker.pipeline.extract import Storey
-from worker.pipeline.geometry import UNASSIGNED, ElementMesh
+from worker.pipeline.geometry import UNASSIGNED, ElementMesh, group_of
 
 _GREY = [200, 200, 200, 255]
 
@@ -39,7 +39,7 @@ def build_glb(meshes: list[ElementMesh], storeys: list[Storey], out: Path) -> di
     root = scene.graph.base_frame
     known = {s.id for s in storeys}
     groups = [s.id for s in storeys]
-    if any((m.storey_id or UNASSIGNED) not in known for m in meshes) or not groups:
+    if any(group_of(m.storey_id, known) == UNASSIGNED for m in meshes) or not groups:
         groups.append(UNASSIGNED)
     for g in groups:
         scene.graph.update(frame_from=root, frame_to=g, matrix=np.eye(4))
@@ -47,11 +47,13 @@ def build_glb(meshes: list[ElementMesh], storeys: list[Storey], out: Path) -> di
     materials: dict[str, PBRMaterial] = {}
     node_map: dict[str, str] = {}
     for m in meshes:
-        parent = m.storey_id if m.storey_id in known else UNASSIGNED
+        parent = group_of(m.storey_id, known)
         lib = m.material_key or "default"
         mat = materials.setdefault(lib, PBRMaterial(name=lib, baseColorFactor=_GREY))
         verts, faces, uv = box_uv(m.vertices, m.faces)
-        extras = {"ifcGlobalId": m.global_id, "ifcClass": m.ifc_class, "libraryKey": m.material_key}
+        extras = {"ifcGlobalId": m.global_id, "ifcClass": m.ifc_class}
+        if m.material_key:  # never write libraryKey: null
+            extras["libraryKey"] = m.material_key
         tm = trimesh.Trimesh(verts, faces, process=False, visual=TextureVisuals(uv=uv, material=mat))
         tm.metadata.update(extras)  # exported as mesh extras
         # node metadata is exported as glTF node extras

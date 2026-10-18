@@ -17,7 +17,7 @@ from worker.pipeline.report import GeometryReport
 
 __all__ = [
     "ElementMesh", "GeometryReport", "COORDINATE_TRANSFORM", "ifc_to_glb_point", "extract_meshes",
-    "is_runtime_excluded", "placement_of", "UNASSIGNED",
+    "is_runtime_excluded", "placement_of", "UNASSIGNED", "group_of", "recentre_offset",
 ]
 
 log = logging.getLogger("ifc-worker")
@@ -53,10 +53,38 @@ def ifc_to_glb_point(p) -> tuple[float, float, float]:
     return (x, z, -y)
 
 
-def COORDINATE_TRANSFORM(unit_scale: float) -> list[float]:  # noqa: N802 - contract name
-    """Column-major 4x4 mapping IFC model coordinates (IFC length units) to GLB metres."""
+def COORDINATE_TRANSFORM(  # noqa: N802 - contract name
+    unit_scale: float, origin_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
+) -> list[float]:
+    """Column-major 4x4 mapping IFC model coordinates (IFC length units) to GLB metres:
+    GLB = axis_swap(ifc * s) - origin_offset (origin_offset is in GLB metres)."""
     s = float(unit_scale)
-    return [s, 0, 0, 0, 0, 0, -s, 0, 0, s, 0, 0, 0, 0, 0, 1]
+    ox, oy, oz = (_clean(-float(v)) for v in origin_offset)
+    return [s, 0, 0, 0, 0, 0, -s, 0, 0, s, 0, 0, ox, oy, oz, 1]
+
+
+def _clean(v: float) -> float:
+    r = round(v, 6)
+    return 0 if r == 0 else r
+
+
+def group_of(storey_id: str | None, known: set[str]) -> str:
+    """Top-level GLB node / triangle-budget key for an element's storey."""
+    return storey_id if storey_id in known else UNASSIGNED
+
+
+def recentre_offset(meshes: list["ElementMesh"], fallback_points: list = ()) -> tuple[float, float, float]:
+    """GLB-space origin shift: centre of the combined mesh bbox on x and z (y stays 0 so elevations
+    stay true); without meshes the mean of the fallback points, else 0. Rounded to the millimetre."""
+    if meshes:
+        lo = np.min([m.vertices.min(axis=0) for m in meshes], axis=0)
+        hi = np.max([m.vertices.max(axis=0) for m in meshes], axis=0)
+        c = (lo + hi) / 2.0
+    elif len(fallback_points):
+        c = np.mean(np.asarray(fallback_points, dtype=float), axis=0)
+    else:
+        return (0.0, 0.0, 0.0)
+    return (round(float(c[0]), 3), 0.0, round(float(c[2]), 3))
 
 
 def _is_default_mass(el: Element) -> bool:
@@ -153,6 +181,7 @@ def extract_meshes(
                     break
 
     unmapped: set[str] = set()
+    known = {st.id for st in info.storeys}
     for gid, (el, ent) in wanted.items():
         mesh = meshes.get(gid)
         if mesh is None:
@@ -162,7 +191,7 @@ def extract_meshes(
             report.nonstandard_context.append(gid)
         if not is_mapped(el.material_names, materials):
             unmapped.update(n for n in el.material_names if not is_mapped([n], materials))
-        storey = mesh.storey_id or UNASSIGNED
+        storey = group_of(mesh.storey_id, known)
         report.triangles_per_storey[storey] = report.triangles_per_storey.get(storey, 0) + len(mesh.faces)
     report.unmapped_materials = sorted(unmapped)
     ordered = [meshes[g] for g in wanted if g in meshes]

@@ -117,3 +117,33 @@ def test_glb_without_storeys_uses_unassigned(tmp_path: Path, materials):
     scene = trimesh.load(str(out), file_type="glb")
     assert scene.graph.transforms.children[scene.graph.base_frame] == ["unassigned"]
     assert set(report.triangles_per_storey) == {"unassigned"}
+
+
+def test_glb_omits_null_library_key_and_unknown_storey_is_unassigned(tmp_path: Path, materials):
+    from worker.pipeline.geometry import ElementMesh
+
+    ids = build_sample_ifc(tmp_path / "s.ifc")
+    model, info = read_model(tmp_path / "s.ifc")
+    for e in info.elements:
+        if e.global_id == ids["sink_1"]:
+            e.storey_id = "ZZ"  # storey not among info.storeys
+    meshes, report = extract_meshes(model, info, materials)
+    sink = [m for m in meshes if m.global_id == ids["sink_1"]][0]
+    assert sink.material_key is None
+    assert report.triangles_per_storey["unassigned"] == len(sink.faces)
+    out = tmp_path / "p.glb"
+    build_glb(meshes, info.storeys, out)
+    j = glb_json(out.read_bytes())
+    nodes = {n.get("name"): n for n in j["nodes"]}
+    assert "libraryKey" not in nodes[ids["sink_1"]]["extras"]
+    assert "libraryKey" not in j["meshes"][nodes[ids["sink_1"]]["mesh"]]["extras"]
+    root_children = [j["nodes"][i]["name"] for i in nodes["world"]["children"]]
+    assert sorted(root_children) == ["L1", "L2", "unassigned"]
+    unassigned_children = [j["nodes"][i]["name"] for i in nodes["unassigned"]["children"]]
+    assert unassigned_children == [ids["sink_1"]]
+
+
+def test_coordinate_transform_with_offset():
+    m = np.array(COORDINATE_TRANSFORM(0.001, (10.0, 0.0, -5.0)), dtype=float).reshape(4, 4, order="F")
+    out = m @ np.array([1000.0, 2000.0, 3000.0, 1.0])
+    assert np.allclose(out[:3], (1 - 10, 3, -2 + 5))

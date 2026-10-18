@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import jsonschema
+import numpy as np
 import pytest
 
 from tests._helpers import glb_json, make_claim
@@ -60,14 +61,17 @@ def test_geometry_metadata_valid_and_covers_interactables(tmp_path: Path):
 
 
 def test_door_interactable_has_ifcdoor_class(tmp_path: Path):
-    ids, (_, bld) = _run(tmp_path)
+    ids, (glb, bld) = _run(tmp_path)
     by = {i["ifcGlobalId"]: i for i in bld.metadata["interactables"]}
     exit_door = by[ids["door_exit"]]
     assert exit_door["catalogKey"] == "door.exit" and exit_door["ifcClass"] == "IfcDoor"
     inferred = by[ids["door_ext"]]
     assert inferred["source"] == "inferred" and inferred["ifcClass"] == "IfcDoor"
     ext = by[ids["ext_1"]]
-    assert ext["position"] == pytest.approx([1.1, 0.3, -1.6], abs=1e-6)
+    ct = glb.metadata["coordinateTransform"]
+    shift = np.array([ct[12], ct[13], ct[14]])  # recentring translation (GLB = swap(ifc*s) + shift)
+    assert ct[13] == 0
+    assert ext["position"] == pytest.approx(list(np.array([1.1, 0.3, -1.6]) + shift), abs=1e-6)
     assert ext["bbox"] == pytest.approx([0.2, 0.2, 0.6], abs=1e-6)
     assert ext["rotationY"] == pytest.approx(0.0)
 
@@ -127,4 +131,105 @@ def test_process_without_any_body_geometry_reports_qa(tmp_path: Path):
     sem = {s["ifcGlobalId"]: s["nodeId"] for s in glb.metadata["semanticMapping"]}
     assert all(sem[g].startswith("meta:") for g in no_body[0]["ifcGlobalIds"])
     assert glb_json(glb.path.read_bytes())["nodes"][0]["name"] == "world"
+    jsonschema.validate(bld.metadata, BLD_SCHEMA)
+
+
+def _shift_storeys(src: Path, dx_mm: float, dy_mm: float) -> None:
+    import ifcopenshell
+
+    f = ifcopenshell.open(str(src))
+    for st in f.by_type("IfcBuildingStorey"):
+        loc = st.ObjectPlacement.RelativePlacement.Location
+        x, y, z = loc.Coordinates
+        loc.Coordinates = (x + dx_mm, y + dy_mm, z)
+    f.write(str(src))
+
+
+def test_far_away_model_is_recentred(tmp_path: Path):
+    import ifcopenshell
+    import ifcopenshell.util.placement as pl
+
+    src = tmp_path / "source.ifc"
+    ids = build_sample_ifc(src)
+    _shift_storeys(src, 5e8, 5e8)  # 500 km east and north (survey coordinates)
+    out = tmp_path / "out"
+    out.mkdir()
+    glb, bld = process_ifc(src, out, make_claim())
+    jsonschema.validate(glb.metadata, GEO_SCHEMA)
+    jsonschema.validate(bld.metadata, BLD_SCHEMA)
+    assert "IFC_COORDINATES_OUT_OF_RANGE" not in {i["code"] for i in glb.issues}
+    assert bld.metadata["interactables"]
+    for it in bld.metadata["interactables"]:
+        assert all(abs(n) < 1e5 for n in it["position"])
+        assert all(abs(n) < 1e5 for n in it.get("bbox", []))
+        assert all(abs(n) < 100 for n in it["position"])  # the sample is a few metres wide
+    # IFC model point -> coordinateTransform == shifted GLB point
+    ct = np.array(glb.metadata["coordinateTransform"], dtype=float).reshape(4, 4, order="F")
+    f = ifcopenshell.open(str(src))
+    world = pl.get_local_placement(f.by_guid(ids["ext_1"]).ObjectPlacement)
+    centre_ifc = world @ np.array([100.0, 100.0, 300.0, 1.0])  # local centre of the 200x200x600 mm box
+    glb_pt = ct @ centre_ifc
+    ext = [i for i in bld.metadata["interactables"] if i["ifcGlobalId"] == ids["ext_1"]][0]
+    assert glb_pt[:3] == pytest.approx(ext["position"], abs=1e-3)  # L1 elevation 0
+    import trimesh
+    scene = trimesh.load(str(glb.path), file_type="glb")
+    assert np.abs(scene.bounds).max() < 100
+
+
+def test_outlier_beyond_range_is_dropped_with_error(tmp_path: Path):
+    import ifcopenshell
+
+    src = tmp_path / "source.ifc"
+    ids = build_sample_ifc(src)
+    f = ifcopenshell.open(str(src))
+    loc = f.by_guid(ids["ext_1"]).ObjectPlacement.RelativePlacement.Location
+    loc.Coordinates = (3e8, 1500.0, 0.0)  # 300 km away from everything else
+    f.write(str(src))
+    out = tmp_path / "out"
+    out.mkdir()
+    glb, bld = process_ifc(src, out, make_claim())
+    err = [i for i in glb.issues if i["code"] == "IFC_COORDINATES_OUT_OF_RANGE"]
+    assert err and err[0]["severity"] == "Error" and ids["ext_1"] in err[0]["ifcGlobalIds"]
+    assert glb.outcome == "Failed"
+    assert ids["ext_1"] not in {i["ifcGlobalId"] for i in bld.metadata["interactables"]}
+    for it in bld.metadata["interactables"]:
+        assert all(abs(n) <= 1e5 for n in it["position"] + it.get("bbox", []))
+    sem = {s["ifcGlobalId"] for s in glb.metadata["semanticMapping"]}
+    assert ids["ext_1"] in sem
+
+
+def test_semantic_mapping_puts_candidates_and_qa_ids_first(tmp_path: Path):
+    ids, (glb, bld) = _run(tmp_path)
+    order = [s["ifcGlobalId"] for s in glb.metadata["semanticMapping"]]
+    wall_idx = order.index(ids["wall_1"])
+    slab_idx = order.index(ids["slab_l2"])
+    important = [i["ifcGlobalId"] for i in bld.metadata["interactables"]]
+    important += [g for i in glb.issues for g in i.get("ifcGlobalIds", [])]
+    important += [ids["space_101"], ids["space_201"], ids["stair_1"]]
+    assert important
+    for g in important:
+        assert order.index(g) < min(wall_idx, slab_idx), g
+
+
+def test_duplicate_global_ids_deduped_with_warning(tmp_path: Path):
+    import ifcopenshell
+
+    src = tmp_path / "source.ifc"
+    ids = build_sample_ifc(src)
+    f = ifcopenshell.open(str(src))
+    f.by_id(f.by_guid(ids["space_201"]).id()).GlobalId = ids["space_101"]
+    f.by_id(f.by_guid(ids["L2"]).id()).GlobalId = ids["L1"]
+    f.write(str(src))
+    out = tmp_path / "out"
+    out.mkdir()
+    glb, bld = process_ifc(src, out, make_claim())
+    dup = [i for i in glb.issues if i["code"] == "IFC_DUPLICATE_GLOBALID"]
+    assert dup and dup[0]["severity"] == "Warning"
+    assert set(dup[0]["ifcGlobalIds"]) == {ids["space_101"], ids["L1"]}
+    assert [s["ifcGlobalId"] for s in bld.metadata["spaces"]] == [ids["space_101"]]
+    floor_gids = [fl.get("ifcGlobalId") for fl in glb.metadata["floors"]]
+    assert floor_gids == [ids["L1"], None]
+    sem = [s["ifcGlobalId"] for s in glb.metadata["semanticMapping"]]
+    assert len(sem) == len(set(sem)) and ids["L1"] in sem and ids["space_101"] in sem
+    jsonschema.validate(glb.metadata, GEO_SCHEMA)
     jsonschema.validate(bld.metadata, BLD_SCHEMA)
