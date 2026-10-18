@@ -17,3 +17,11 @@ def test_readiness_timeout_fails_instead_of_skipping():
 
     with pytest.raises(pytest.fail.Exception):
         pgsupport.prepare_or_fail("postgresql://x", wait=never_ready, apply=lambda dsn: None)
+
+
+def test_pg_source_skips_without_env_and_never_needs_docker(monkeypatch):
+    monkeypatch.setattr("shutil.which", lambda name: (_ for _ in ()).throw(AssertionError("docker probed")))
+    assert pgsupport.pg_source({}) == "skip"
+    assert pgsupport.pg_source({"FIRE3D_AI_TEST_PG_DOCKER": "0"}) == "skip"
+    assert pgsupport.pg_source({"FIRE3D_AI_TEST_PG_DOCKER": "1"}) == "docker"
+    assert pgsupport.pg_source({"FIRE3D_AI_TEST_PG_DSN": "postgresql://x", "FIRE3D_AI_TEST_PG_DOCKER": "1"}) == "dsn"

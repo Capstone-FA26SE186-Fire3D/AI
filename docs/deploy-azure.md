@@ -47,7 +47,7 @@ Chạy `python -m app.index.housekeeping` (cần `KNOWLEDGE_DATABASE_URL`) để
 - [ ] BE gọi `organization/answer` với nguồn đã pin: trả `Answered` kèm citation đúng `document_id`/phiên bản.
 - [ ] Nguồn sai hash hoặc không tải được: `AI_SOURCE_HASH_MISMATCH` / `AI_SOURCE_UNAVAILABLE` (422).
 - [ ] Cùng `request_id`, cùng input: kết quả cũ, provider chỉ bị gọi một lần; khác input: `AI_REQUEST_CONFLICT` (409).
-- [ ] Mô phỏng timeout: BE tra `GET /api/ai/requests/{requestId}` trước khi retry.
+- [ ] Mô phỏng timeout: BE tra route của BE `GET /api/ai/requests/{requestId}` (khác `GET /v2/requests/{request_id}` của AI service) trước khi retry.
 - [ ] Câu hỏi chứng nhận/sự cố thật: `RejectedBySafetyGate`; thiếu nguồn: `InsufficientEvidence`.
 - [ ] `ScenarioDraft` với `bim` đã pin: `NeedsUserEdit`, anchor đúng `ifcGlobalId`.
 - [ ] Trainee `TraineeAnswer` chỉ dùng nguồn Learn/SessionResult được BE cấp.

@@ -18,8 +18,8 @@ jobs:
           cache: pip
           cache-dependency-path: rag-api/requirements.txt
       - run: pip install -r requirements.txt
-      # Test pgvector tự bỏ qua vì FIRE3D_AI_TEST_PG_DSN không được đặt (không dùng service container/Docker).
-      - run: pytest -q
+      # Test pgvector tự bỏ qua vì FIRE3D_AI_TEST_PG_DSN không được đặt (Docker chỉ chạy khi opt-in FIRE3D_AI_TEST_PG_DOCKER=1).
+      - run: python -m pytest -q
       - run: python -m evals.run_eval --provider fake --out evals/reports/ci
 
   # ifc-worker:

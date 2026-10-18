@@ -79,3 +79,12 @@ def start_container() -> tuple[str, str]:
 
 def stop_container(container: str) -> None:
     subprocess.run(["docker", "stop", container], capture_output=True)
+
+
+def pg_source(env) -> str:
+    """Where pg tests get a database: 'dsn' (explicit), 'docker' (explicit opt-in) or 'skip'. Never probes docker."""
+    if env.get("FIRE3D_AI_TEST_PG_DSN"):
+        return "dsn"
+    if env.get("FIRE3D_AI_TEST_PG_DOCKER") == "1":
+        return "docker"
+    return "skip"

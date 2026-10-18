@@ -14,7 +14,7 @@ Sau khi checkout nhánh có bộ hướng dẫn, mở repo bằng Codex và yêu
 
 ## Kiểm thử, eval và triển khai
 
-- Test: `cd rag-api && python -m pytest -q` (test pgvector tự bỏ qua nếu không đặt `FIRE3D_AI_TEST_PG_DSN`).
+- Test: `cd rag-api && python -m pytest -q` (test pgvector tự bỏ qua nếu không đặt `FIRE3D_AI_TEST_PG_DSN` (đặt `FIRE3D_AI_TEST_PG_DOCKER=1` để opt-in chạy PostgreSQL qua Docker)).
 - Eval offline: `cd rag-api && python -m evals.run_eval --provider fake --out evals/reports/local` (xem [rag-api/evals/README.md](rag-api/evals/README.md)).
 - CI: [.github/workflows/ci.yml](.github/workflows/ci.yml). Triển khai: [docs/deploy-azure.md](docs/deploy-azure.md) (Azure App Service, code deploy).
 - Dự án không dùng Docker: không có Dockerfile hay docker-compose, và test/eval không phụ thuộc Docker.
