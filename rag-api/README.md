@@ -30,3 +30,14 @@ Schema và fixture hợp đồng với BE nằm trong `contracts/` (xem `contrac
 
 Các route cũ `/documents`, `/chat`, `/pccc/*` và CORS mặc định TẮT. Đặt `LEGACY_ROUTES_ENABLED=true` để bật cho demo FE/Mobile;
 `VectorStore` (Chroma) chỉ được khởi tạo khi route legacy được gọi lần đầu. `/health` luôn có.
+
+## Test và eval
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m evals.run_eval --provider fake --out evals/reports/local
+```
+
+Test pgvector chỉ chạy khi đặt `FIRE3D_AI_TEST_PG_DSN` tới một PostgreSQL có pgvector; nếu không, chúng tự bỏ qua. Eval `fake` chạy hoàn toàn offline (xem `evals/README.md`); `--provider openai|gemini` cần khoá API tương ứng (`OPENAI_API_KEY`, `GEMINI_API_KEY`).
+
+Biến môi trường chính: xem mục "Cấu hình v2" và `.env.example`. Dự án không dùng Docker; hướng dẫn triển khai Azure App Service ở `../docs/deploy-azure.md`.
