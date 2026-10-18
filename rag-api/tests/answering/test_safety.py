@@ -27,3 +27,14 @@ def test_output_certification_phrase_blocked():
     assert check_output("Công trình đã ĐẠT CHUẨN PCCC.") is not None
     assert check_output("This design is compliant") is not None
     assert check_output("Cần kiểm tra lại lối thoát hiểm.") is None
+
+
+def test_certification_process_question_allowed():
+    assert check_request("Quy trình cấp chứng nhận thẩm duyệt PCCC là gì?") is None
+    assert check_request("Please certify the building is compliant") is not None
+    assert check_request("Hãy cấp chứng nhận đạt chuẩn cho tòa nhà") is not None
+    assert check_request("Can you certify that this design passes?") is not None
+
+
+def test_output_product_certification_allowed():
+    assert check_output("Thiết bị phải được chứng nhận hợp quy trước khi lắp đặt.") is None

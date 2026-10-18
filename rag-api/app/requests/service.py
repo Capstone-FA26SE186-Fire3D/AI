@@ -1,14 +1,16 @@
 """Durable BE request lifecycle: dedup, processing, reconcile lookup and recovery (spec A6)."""
 from __future__ import annotations
 
+import dataclasses
 import logging
 import threading
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
 from app.answering.pipeline import PipelineDeps, run_pipeline
-from app.answering.usage import context_budget
-from app.requests.store import RequestRecord, RequestStore
+from app.answering.usage import context_budget, to_usage
+from app.llm.base import LlmUsage
+from app.requests.store import USAGE_SUM_FIELDS, RequestRecord, RequestStore
 from app.sources.resolver import SourceResolver
 from app.v2.errors import AdapterRefusal
 from app.v2.schemas import ROUTES, AdapterRequest, AdapterResponse
@@ -16,8 +18,6 @@ from app.v2.schemas import ROUTES, AdapterRequest, AdapterResponse
 log = logging.getLogger(__name__)
 
 TERMINAL_RECOMMENDATION = "Không thể hoàn tất yêu cầu sau nhiều lần thử; cần kiểm tra lại nguồn."
-
-_USAGE_SUM_FIELDS = ("provider_units", "input_tokens", "output_tokens")
 
 
 def error(code: str, message: str) -> dict:
@@ -43,7 +43,7 @@ def _in_progress() -> tuple[int, dict]:
 def _sum_usage(previous: dict | None, current: dict) -> dict:
     total = dict(current)
     if isinstance(previous, dict):
-        for key in _USAGE_SUM_FIELDS:
+        for key in USAGE_SUM_FIELDS:
             prev = previous.get(key)
             if isinstance(prev, (int, float)) and not isinstance(prev, bool):
                 total[key] = int(total.get(key, 0)) + int(prev)
@@ -158,7 +158,7 @@ class RequestService:
 
         # Processing is committed: from here a provider call may have happened.
         try:
-            response = run_pipeline(req, prepared, self.deps)
+            response = run_pipeline(req, prepared, self._deps_for(req))
         except AdapterRefusal as exc:
             # Every AdapterRefusal raised by run_pipeline happens before provider.generate
             # (quota-unit / BIM-pin checks; both are also pre-checked before INSERT), so no
@@ -178,6 +178,17 @@ class RequestService:
             log.exception("complete failed", extra={"request_id": rid})
             return _outcome_unknown()
         return 200, body
+
+    def _deps_for(self, req: AdapterRequest) -> PipelineDeps:
+        """Per-request deps whose on_usage persists each provider call's usage right away."""
+
+        def on_usage(llm: LlmUsage) -> None:
+            try:
+                self.store.add_usage(req.request_id, to_usage(llm, req.limits).model_dump(mode="json"))
+            except Exception:
+                log.exception("add_usage failed", extra={"request_id": req.request_id})
+
+        return dataclasses.replace(self.deps, on_usage=on_usage)
 
     def _safe_delete(self, request_id: str) -> None:
         try:
@@ -226,7 +237,7 @@ class RequestService:
         try:
             req = AdapterRequest.model_validate(rec.payload)
             prepared = self.resolver.prepare(req.sources)
-            response: AdapterResponse = run_pipeline(req, prepared, self.deps)
+            response: AdapterResponse = run_pipeline(req, prepared, self._deps_for(req))
             body = response.model_dump(mode="json")
             total = _sum_usage(rec.usage_total, body["usage"])
             body["usage"] = total

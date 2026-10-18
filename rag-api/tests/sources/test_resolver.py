@@ -107,3 +107,26 @@ def test_no_usable_pins_retrieves_nothing():
     prepared = resolver.prepare([])
     assert retrieve("q", prepared, index, provider) == []
     assert provider.calls == []
+
+
+def test_total_fetch_deadline_refuses_new_fetches():
+    bodies = {f"https://files.example/{i}.txt": f"noi dung {i}".encode() for i in range(3)}
+    resolver, index, provider, log = _setup(bodies)
+    ticks = iter([0.0, 10.0, 61.0, 61.0, 61.0])
+    resolver.clock = lambda: next(ticks)
+    pins = [_pin(url, body, doc=f"doc-{i}") for i, (url, body) in enumerate(bodies.items())]
+    with pytest.raises(AdapterRefusal) as exc:
+        resolver.prepare(pins)
+    assert exc.value.code == "AI_SOURCE_UNAVAILABLE"
+    assert len(log) == 1
+    assert Settings().source_total_deadline_seconds == 60
+
+
+def test_already_indexed_sources_ignore_deadline():
+    url = "https://files.example/a.txt"
+    body = b"abc def"
+    resolver, index, provider, log = _setup({url: body})
+    resolver.prepare([_pin(url, body)])
+    ticks = iter([0.0, 999.0, 999.0])
+    resolver.clock = lambda: next(ticks)
+    assert resolver.prepare([_pin(url, body)]).knowledge_ids == ["doc-1"]

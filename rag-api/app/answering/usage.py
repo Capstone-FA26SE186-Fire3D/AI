@@ -10,13 +10,22 @@ from app.v2.schemas import Limits, Usage
 _HUGE = 10**12
 
 
+# Vietnamese text tokenises at roughly 2.5 chars/token (vs ~4 for English); the fixed overhead
+# covers the structured-output schema and message framing. Measure real ratios with
+# `python -m evals.run_eval --provider openai|gemini` before tuning.
+CHARS_PER_TOKEN = 2.5
+PROMPT_OVERHEAD_TOKENS = 300
+# Share of the input allowance actually used, so estimation error does not push usage over max_units.
+BUDGET_MARGIN = 0.85
+
+
 def estimate_tokens(text: str) -> int:
-    return math.ceil(len(text) / 4)
+    return math.ceil(len(text) / CHARS_PER_TOKEN) + PROMPT_OVERHEAD_TOKENS
 
 
 def context_budget(limits: Limits, max_output_tokens: int) -> int | None:
     if limits.quota_unit == "tokens":
-        budget = limits.max_units - max_output_tokens
+        budget = math.floor((limits.max_units - max_output_tokens) * BUDGET_MARGIN)
         return budget if budget > 200 else None
     if limits.quota_unit == "requests":
         return _HUGE

@@ -1,6 +1,11 @@
+import re as _re
+
+import pytest
+
 from app.answering.validate import build_citations, clean_list, to_plain_text
 from app.index.base import ScoredChunk
 from app.sources.chunking import Chunk
+from app.v2.schemas import SourcePin
 
 
 def _retrieved(score=0.7):
@@ -39,3 +44,48 @@ def test_citation_relevance_fallback_and_dedupe():
     raw = [{"chunk_id": "d:v1:0", "relevance": 7}, {"chunk_id": "d:v1:0", "relevance": 0.1}]
     cites = build_citations(raw, _retrieved(0.7))
     assert len(cites) == 1 and cites[0].relevance == 0.7
+
+
+# BE OrganizationAiInput.Text: Markup regex `<\s*[a-zA-Z/!?]` and char.IsControl except \n \t \r.
+_BE_MARKUP = _re.compile(r"<\s*[a-zA-Z/!?]")
+
+
+def _be_accepts(text: str) -> bool:
+    if _BE_MARKUP.search(text):
+        return False
+    return not any((ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F) and c not in "\n\t\r" for c in text)
+
+
+NASTY = [
+    "Khoảng cách < quy định thì phải bổ sung",
+    "a <  b và <!-- x --> rồi <?php ?> và </ div",
+    "nhiệt độ <\nCao",
+    "<[liên kết](http://x)",
+    "<**đậm**",
+    "<`code`",
+    "ký tự\x00điều\x07khiển\x1b[0m và \x85 \x7f",
+    "bảng <b>đậm</b> <br/> <img src=x onerror=y>",
+    "<\ta",
+]
+
+
+@pytest.mark.parametrize("text", NASTY)
+def test_plain_text_passes_be_text_rule(text):
+    out = to_plain_text(text, 1000)
+    assert _be_accepts(out), repr(out)
+    assert all(_be_accepts(i) for i in clean_list([text]))
+
+
+def test_plain_text_keeps_non_tag_angle_brackets():
+    assert to_plain_text("<5 m va >2 m", 100) == "<5 m va >2 m"
+    assert to_plain_text("a<b>c</b>d", 100) == "acd"
+    assert "quy định" in to_plain_text("Khoảng cách < quy định", 100)
+    assert to_plain_text("dòng 1\n\tdòng 2\r\n", 100).startswith("dòng 1")
+
+
+def test_citation_version_comes_from_pin():
+    pin = SourcePin(kind="KnowledgeSource", document_id="d", document_version="v9", content_hash="a" * 64)
+    (c,) = build_citations([{"chunk_id": "d:v1:0"}], _retrieved(), pins={"d": pin})
+    assert c.document_version == "v9"
+    (c,) = build_citations([{"chunk_id": "d:v1:0"}], _retrieved(), pins={})
+    assert c.document_version == "v1"

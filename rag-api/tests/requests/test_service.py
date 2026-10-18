@@ -52,26 +52,36 @@ def db_url(tmp_path):
 
 
 def test_recover_once_completes_stale_and_sums_usage(db_url):
+    """A run that crashes after provider.generate leaves its usage persisted; recovery adds to it."""
     service, provider = _service(db_url)
     req = AdapterRequest.model_validate(_body())
     store = service.store
-    store.insert_received(req.request_id, req.operation, req.audience, req.input_hash,
-                          req.model_dump(mode="json", by_alias=True))
-    assert store.mark_processing(req.request_id) is True
-    prev = {"provider_units": 10, "input_tokens": 7, "output_tokens": 3, "model_version": "fake-1"}
-    with store._engine.begin() as conn:
-        conn.execute(update(store._t).where(store._t.c.request_id == req.request_id).values(usage_total=prev))
+    original_complete = store.complete
+
+    def crash(*a, **k):
+        raise RuntimeError("process died after generate")
+
+    store.complete = crash
+    status, body = service.submit("organization/answer", req)
+    assert status == 500 and body["code"] == "AI_OUTCOME_UNKNOWN"
+    assert len(provider.calls) == 1
+    first = store.get(req.request_id).usage_total
+    assert store.get(req.request_id).status == "Processing"
+    assert first["provider_units"] > 0
+    assert first["provider_units"] == first["input_tokens"] + first["output_tokens"]
+    store.complete = original_complete
 
     future = datetime.now(timezone.utc) + timedelta(seconds=service.deps.settings.request_stale_seconds + 5)
     assert service.recover_once(future) == 1
-    assert len(provider.calls) == 1
+    assert len(provider.calls) == 2
 
     rec = store.get(req.request_id)
     assert rec.status == "Completed"
     total = rec.usage_total
-    assert total["provider_units"] > 10
-    assert total["input_tokens"] > 7 and total["output_tokens"] > 3
-    assert total["provider_units"] == total["input_tokens"] + total["output_tokens"]
+    # FakeProvider usage is deterministic for the same payload: two identical calls.
+    assert total["provider_units"] == 2 * first["provider_units"]
+    assert total["input_tokens"] == 2 * first["input_tokens"]
+    assert total["output_tokens"] == 2 * first["output_tokens"]
     assert rec.response["usage"] == total
     status, body = service.lookup(req.request_id)
     assert status == 200 and body["usage"]["provider_units"] == total["provider_units"]

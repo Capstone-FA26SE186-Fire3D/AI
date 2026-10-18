@@ -7,8 +7,9 @@ import unicodedata
 SAFETY_RULES_VERSION = "1"
 
 CERTIFICATION_PHRASES = (
-    "xac nhan dat chuan", "co dat quy chuan", "cap chung nhan",
-    "certify", "is compliant", "approve the design",
+    "xac nhan dat chuan", "co dat quy chuan", "cap chung nhan dat", "cap chung nhan cho",
+    "certify that", "certify this", "certify the", "certify my", "certify our", "certify compliance",
+    "is compliant", "approve the design",
 )
 FINAL_EQUIPMENT_PHRASES = (
     "so luong binh chua chay chinh xac", "bo tri cuoi cung", "final number of",
@@ -18,7 +19,7 @@ REAL_INCIDENT_PHRASES = (
     "there is a fire now", "real emergency",
 )
 OUTPUT_PHRASES = (
-    "dat chuan pccc", "duoc chung nhan", "tuan thu day du", "is compliant", "certified",
+    "dat chuan pccc", "tuan thu day du", "is compliant", "certified",
 )
 
 _REQUEST_RULES = (

@@ -146,3 +146,38 @@ def test_tiny_budget_no_provider_call():
     resp, provider = _run(_req(units=100), lambda p: _cite(p))
     assert resp.status == "InsufficientEvidence"
     assert provider.calls == []
+
+
+def test_terminal_limitations_are_plain_and_capped():
+    pins = [SourcePin(kind="LearnPost", document_id=f"x{i}", document_version="1", title=f"<b>T{i}</b>\x07",
+                      content_omitted=True) for i in range(25)]
+    resp, provider = _run(_req(pins=pins), lambda p: _cite(p))
+    assert resp.status == "InsufficientEvidence" and provider.calls == []
+    assert len(resp.limitations) == 20
+    assert all("<" not in item and "\x07" not in item for item in resp.limitations)
+
+
+def test_citation_version_from_pin_when_index_is_older():
+    import hashlib
+
+    import httpx
+
+    body = "Bình chữa cháy xách tay dùng theo hướng dẫn.".encode("utf-8")
+    url = "https://files.example/a.txt"
+    http = httpx.Client(transport=httpx.MockTransport(
+        lambda r: httpx.Response(200, content=body, headers={"content-type": "text/plain"})))
+    provider = FakeProvider(lambda p: _cite(p))
+    index = MemoryIndex()
+    settings = Settings()
+    resolver = SourceResolver(index, provider, settings, http=http)
+
+    def pin(version):
+        return SourcePin(kind="KnowledgeSource", document_id="ks-1", document_version=version, title="QC",
+                         content_hash=hashlib.sha256(body).hexdigest(), source_uri=url)
+
+    resolver.prepare([pin("v1")])
+    req = _req(pins=(pin("v2"),))
+    prepared = resolver.prepare(req.sources)
+    resp = run_pipeline(req, prepared, PipelineDeps(provider, index, settings))
+    assert resp.status == "Answered"
+    assert resp.citations[0].document_version == "v2"

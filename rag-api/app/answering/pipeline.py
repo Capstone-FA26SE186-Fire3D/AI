@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Callable
 
 from app.answering.prompts import ANSWER_SCHEMA, build_payload, system_prompt
 from app.answering.retrieval import retrieve
@@ -25,13 +26,15 @@ class PipelineDeps:
     provider: Provider
     index: KnowledgeIndex
     settings: Settings
+    # Called right after a successful provider.generate (the request service persists it).
+    on_usage: Callable[[LlmUsage], None] | None = None
 
 
 def _terminal(req, status, recommendation, limits_text, llm: LlmUsage | None, assumptions=None) -> AdapterResponse:
     return AdapterResponse(
         request_id=req.request_id, response_type=req.response_type, status=status,
         recommendation=recommendation, scenario_draft=None, bim_anchors=[], citations=[], rule_results=[],
-        confidence="low", assumptions=assumptions or [], limitations=limits_text,
+        confidence="low", assumptions=assumptions or [], limitations=clean_list(limits_text),
         usage=to_usage(llm, req.limits),
     )
 
@@ -42,6 +45,7 @@ class Grounded:
     llm: LlmUsage
     chunks: list
     limitations: list[str]
+    pins: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -92,7 +96,9 @@ def ground(
             return _terminal(req, "InsufficientEvidence", NO_SOURCE, limitations + ["Hạn mức không đủ để xử lý."], None)
 
     raw, llm = deps.provider.generate(system, payload, schema, max_out)
-    return Grounded(raw, llm, chunks, limitations)
+    if deps.on_usage is not None:
+        deps.on_usage(llm)
+    return Grounded(raw, llm, chunks, limitations, prepared.pins)
 
 
 def parse_grounded(req: AdapterRequest, g: Grounded, required: tuple[str, ...] = _REQUIRED) -> Parsed | AdapterResponse:
@@ -109,7 +115,7 @@ def parse_grounded(req: AdapterRequest, g: Grounded, required: tuple[str, ...] =
     assumptions = clean_list(raw["assumptions"]) if isinstance(raw["assumptions"], list) else []
     model_limits = clean_list(raw["limitations"]) if isinstance(raw["limitations"], list) else []
     all_limits = (g.limitations + model_limits)[:20]
-    citations = build_citations(raw["citations"], {sc.chunk.chunk_id: sc for sc in g.chunks})
+    citations = build_citations(raw["citations"], {sc.chunk.chunk_id: sc for sc in g.chunks}, g.pins)
     if raw["status"] == "insufficient" or not citations:
         return _terminal(req, "InsufficientEvidence", NO_SOURCE, all_limits, g.llm, assumptions)
     return Parsed(raw, g.llm, assumptions, all_limits, citations)

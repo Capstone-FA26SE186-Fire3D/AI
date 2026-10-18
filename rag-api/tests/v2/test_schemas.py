@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.v2.errors import AdapterRefusal, refuse
-from app.v2.schemas import AdapterRequest, Citation, RuntimePin, ROUTES, capability_ids
+from app.v2.schemas import AdapterRequest, Citation, ROUTES
 
 FIX = Path(__file__).parent.parent / "fixtures" / "v2"
 NAMES = ["organization-answer", "organization-scenario-draft", "trainee-answer"]
@@ -38,14 +38,6 @@ def test_unknown_fields_ignored(name):
         body["bim"]["extra_field"] = 1
         body["bim"]["runtime"]["extra_field"] = 1
     AdapterRequest.model_validate(body)
-
-
-def test_capability_ids_accepts_strings_and_objects():
-    rt = RuntimePin.model_validate(
-        {"capabilities": ["fire.source", {"id": "npc.evacuee", "version": "2.1.0"}, {"capabilityId": "x.y"}, 5]}
-    )
-    assert capability_ids(rt) == {"fire.source": None, "npc.evacuee": "2.1.0", "x.y": None}
-    assert capability_ids(None) == {}
 
 
 def test_response_rejects_bad_relevance():

@@ -108,3 +108,34 @@ def test_network_error_unavailable():
     with pytest.raises(AdapterRefusal) as e:
         fetch_document("https://x.test/a", SHA, max_bytes=1000, timeout=5, client=_client(boom))
     assert e.value.code == "AI_SOURCE_UNAVAILABLE"
+
+
+def test_invalid_location_is_unavailable():
+    def handler(request):
+        return httpx.Response(302, headers={"location": "https://[bad"})
+
+    with pytest.raises(AdapterRefusal) as e:
+        fetch_document("https://x.test/a", SHA, max_bytes=1000, timeout=5, client=_client(handler))
+    assert e.value.code == "AI_SOURCE_UNAVAILABLE"
+
+
+def test_invalid_uri_is_unavailable():
+    with pytest.raises(AdapterRefusal) as e:
+        fetch_document("https://[bad/a", SHA, max_bytes=1000, timeout=5, client=_client(_ok))
+    assert e.value.code == "AI_SOURCE_UNAVAILABLE"
+
+
+def test_error_message_strips_userinfo():
+    def boom(request):
+        raise httpx.ConnectError("down")
+
+    with pytest.raises(AdapterRefusal) as e:
+        fetch_document("https://user:pa55@x.test/a?sig=s3cret", SHA, max_bytes=1000, timeout=5, client=_client(boom))
+    assert "pa55" not in e.value.message and "user" not in e.value.message and "s3cret" not in e.value.message
+    assert "x.test/a" in e.value.message
+
+
+def test_httpx_invalid_url_is_unavailable():
+    with pytest.raises(AdapterRefusal) as e:
+        fetch_document("https://x.test/\x00a", SHA, max_bytes=1000, timeout=5, client=_client(_ok))
+    assert e.value.code == "AI_SOURCE_UNAVAILABLE"

@@ -12,12 +12,20 @@ _MAX_REDIRECTS = 3
 
 
 def _safe(uri: str) -> str:
-    parts = urlsplit(uri)
-    return f"{parts.scheme}://{parts.netloc}{parts.path}"
+    """URI for messages/logs: no userinfo, query or fragment."""
+    try:
+        parts = urlsplit(uri)
+    except ValueError:
+        return "<invalid uri>"
+    return f"{parts.scheme}://{parts.netloc.rpartition('@')[2]}{parts.path}"
 
 
 def _check_https(uri: str) -> None:
-    if urlsplit(uri).scheme.lower() != "https":
+    try:
+        scheme = urlsplit(uri).scheme.lower()
+    except ValueError:
+        raise refuse("AI_SOURCE_UNAVAILABLE", "Source URI is invalid") from None
+    if scheme != "https":
         raise refuse("AI_SOURCE_UNAVAILABLE", f"Source URI must use https: {_safe(uri)}")
 
 
@@ -35,9 +43,11 @@ def fetch_document(
     try:
         current = uri
         for hop in range(_MAX_REDIRECTS + 1):
-            request = http.build_request("GET", current)
             try:
+                request = http.build_request("GET", current)
                 response = http.send(request, stream=True, follow_redirects=False)
+            except httpx.InvalidURL:
+                raise refuse("AI_SOURCE_UNAVAILABLE", f"Source URI is invalid: {_safe(current)}") from None
             except httpx.HTTPError:
                 raise refuse("AI_SOURCE_UNAVAILABLE", f"Source fetch failed: {_safe(current)}") from None
             try:
@@ -45,7 +55,10 @@ def fetch_document(
                     location = response.headers.get("location")
                     if not location or hop == _MAX_REDIRECTS:
                         raise refuse("AI_SOURCE_UNAVAILABLE", "Too many or invalid redirects")
-                    current = urljoin(current, location)
+                    try:
+                        current = urljoin(current, location)
+                    except ValueError:
+                        raise refuse("AI_SOURCE_UNAVAILABLE", "Invalid redirect location") from None
                     _check_https(current)
                     continue
                 if response.status_code != 200:

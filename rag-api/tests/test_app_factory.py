@@ -40,3 +40,12 @@ def test_vendored_contract_fixtures_validate(name: str) -> None:
     fixture = json.loads((CONTRACTS / "fixtures" / f"{name}.valid.json").read_text(encoding="utf-8"))
 
     Draft202012Validator(schema).validate(fixture)
+
+
+@pytest.mark.parametrize("environment", ["production", "staging"])
+def test_non_development_refuses_sqlite_request_store(environment: str) -> None:
+    with pytest.raises(RuntimeError, match="DATABASE_URL"):
+        create_app(Settings(environment=environment, ai_api_key="k", knowledge_database_url="postgresql://x/y",
+                            database_url="sqlite:///./data/ai_requests.db", _env_file=None))
+    create_app(Settings(environment=environment, ai_api_key="k", knowledge_database_url="postgresql://x/y",
+                        database_url="postgresql://u@h/db", recovery_interval_seconds=0, _env_file=None))

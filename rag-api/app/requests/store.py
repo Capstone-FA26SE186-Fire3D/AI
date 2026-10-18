@@ -29,6 +29,7 @@ from sqlalchemy.exc import IntegrityError
 POSTGRES_SCHEMA = "ai_service"
 
 _JSON = JSON().with_variant(JSONB(), "postgresql")
+USAGE_SUM_FIELDS = ("provider_units", "input_tokens", "output_tokens")
 
 
 @dataclass
@@ -144,6 +145,33 @@ class RequestStore:
                 )
             )
         return result.rowcount == 1
+
+    def add_usage(self, request_id: str, usage: dict) -> None:
+        """Add one provider call's usage to usage_total while the row is Processing (so a crash
+        after the call still leaves it on record for recovery to sum)."""
+        t = self._t
+        with self._engine.begin() as conn:
+            row = conn.execute(
+                select(t.c.usage_total)
+                .where(t.c.request_id == request_id, t.c.status == "Processing")
+                .with_for_update()
+            ).first()
+            if row is None:
+                return
+            total = dict(row.usage_total) if isinstance(row.usage_total, dict) else {}
+            for key in USAGE_SUM_FIELDS:
+                value = usage.get(key)
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    prev = total.get(key)
+                    prev = int(prev) if isinstance(prev, (int, float)) and not isinstance(prev, bool) else 0
+                    total[key] = prev + int(value)
+            if isinstance(usage.get("model_version"), str):
+                total["model_version"] = usage["model_version"]
+            conn.execute(
+                update(t)
+                .where(t.c.request_id == request_id, t.c.status == "Processing")
+                .values(usage_total=total, updated_at=_now())
+            )
 
     def complete(self, request_id: str, response: dict, usage_total: dict) -> bool:
         """Processing -> Completed; False when someone else already completed (or the row is gone)."""

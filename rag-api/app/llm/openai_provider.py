@@ -5,6 +5,10 @@ from openai import OpenAI
 from app.llm.base import LlmUsage, ProviderError
 
 
+# Well under the embeddings API per-request input limit.
+EMBED_BATCH = 512
+
+
 class OpenAIProvider:
     name = "openai"
 
@@ -33,7 +37,12 @@ class OpenAIProvider:
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         try:
-            response = self.client.embeddings.create(model=self.embedding_model, input=texts)
-            return [list(item.embedding) for item in response.data]
+            out: list[list[float]] = []
+            for start in range(0, len(texts), EMBED_BATCH):
+                response = self.client.embeddings.create(
+                    model=self.embedding_model, input=texts[start:start + EMBED_BATCH]
+                )
+                out.extend(list(item.embedding) for item in response.data)
+            return out
         except Exception as exc:
             raise ProviderError(f"openai embedding failed: {type(exc).__name__}") from exc

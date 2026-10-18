@@ -1,6 +1,7 @@
 """Turn BE-pinned sources into searchable chunks (indexed or inline)."""
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from urllib.parse import unquote, urlsplit
 
@@ -41,26 +42,31 @@ class SourceResolver:
         self.provider = provider
         self.settings = settings
         self.http = http
+        self.clock = time.monotonic
 
     def prepare(self, pins: list[SourcePin]) -> PreparedSources:
         prepared = PreparedSources()
+        # Overall cap on source fetching so one request cannot hold BE's call past its timeout.
+        deadline = self.clock() + self.settings.source_total_deadline_seconds
         for pin in pins:
             if pin.content_omitted:
                 prepared.limitations.append(f"Nguồn {pin.title or pin.document_id} quá lớn, không được dùng.")
                 continue
             if pin.kind == "KnowledgeSource":
-                self._prepare_knowledge(pin, prepared)
+                self._prepare_knowledge(pin, prepared, deadline)
             else:
                 self._prepare_inline(pin, prepared)
         return prepared
 
-    def _prepare_knowledge(self, pin: SourcePin, prepared: PreparedSources) -> None:
+    def _prepare_knowledge(self, pin: SourcePin, prepared: PreparedSources, deadline: float) -> None:
         if not pin.content_hash:
             raise refuse("AI_SOURCE_UNAVAILABLE", f"Source {pin.document_id} has no content hash to verify")
         model = self.provider.embedding_model
         if not self.index.has_current(pin.document_id, pin.content_hash, model):
             if not pin.source_uri:
                 raise refuse("AI_SOURCE_UNAVAILABLE", f"Source {pin.document_id} has no source_uri")
+            if self.clock() >= deadline:
+                raise refuse("AI_SOURCE_UNAVAILABLE", "Source fetching exceeded the total time limit")
             data, content_type = fetch_document(
                 pin.source_uri,
                 pin.content_hash,

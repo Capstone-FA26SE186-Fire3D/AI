@@ -68,22 +68,6 @@ class BimPin(_Model):
     runtime: RuntimePin | None = None
 
 
-def capability_ids(runtime: RuntimePin | None) -> dict[str, str | None]:
-    """Map capability id -> version (None for bare string entries)."""
-    result: dict[str, str | None] = {}
-    if runtime is None:
-        return result
-    for item in runtime.capabilities:
-        if isinstance(item, str):
-            result[item] = None
-        elif isinstance(item, dict):
-            cid = item.get("id") or item.get("capabilityId")
-            if isinstance(cid, str) and cid:
-                version = item.get("version")
-                result[cid] = version if isinstance(version, str) else None
-    return result
-
-
 class Limits(_Model):
     quota_unit: str
     max_units: int = Field(ge=1)

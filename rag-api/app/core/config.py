@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     recovery_max_attempts: int = 3
     source_max_bytes: int = 20_971_520
     source_fetch_timeout_seconds: float = 20
+    source_total_deadline_seconds: float = 60
     legacy_routes_enabled: bool = False
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     @property

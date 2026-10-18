@@ -70,6 +70,8 @@ def create_app(settings: Settings | None = None, *, service: "RequestService | N
         raise RuntimeError("AI_API_KEY must be set outside development")
     if service is None and not _is_development(settings) and not settings.knowledge_database_url:
         raise RuntimeError("KNOWLEDGE_DATABASE_URL must be set outside development")
+    if not _is_development(settings) and settings.database_url.lower().startswith("sqlite"):
+        raise RuntimeError("DATABASE_URL must point to PostgreSQL outside development (SQLite is local-only)")
     configure_logging()
     holder = ServiceHolder(settings, service)
 

@@ -119,3 +119,75 @@ def test_factory_requires_key():
         get_provider(Settings(llm_provider="gemini", gemini_api_key="", _env_file=None))
     assert get_provider(Settings(llm_provider="fake", _env_file=None)).name == "fake"
     assert get_provider(Settings(llm_provider="openai", openai_api_key="k", _env_file=None)).name == "openai"
+
+
+def test_gemini_embed_batches_of_100_in_order(monkeypatch):
+    calls = []
+
+    class Models:
+        def embed_content(self, **kw):
+            calls.append(list(kw["contents"]))
+            return SimpleNamespace(embeddings=[SimpleNamespace(values=[float(t)]) for t in kw["contents"]])
+
+    class StubClient:
+        def __init__(self, **kw):
+            self.models = Models()
+
+    monkeypatch.setattr(gemini_provider.genai, "Client", StubClient)
+    texts = [str(i) for i in range(250)]
+    out = gemini_provider.GeminiProvider("k", "g", "e", 1).embed(texts)
+    assert [len(c) for c in calls] == [100, 100, 50]
+    assert out == [[float(i)] for i in range(250)]
+
+
+def test_openai_embed_batches_of_512_in_order(monkeypatch):
+    calls = []
+
+    def create(**kw):
+        calls.append(list(kw["input"]))
+        return SimpleNamespace(data=[SimpleNamespace(embedding=[float(t)]) for t in kw["input"]])
+
+    class StubOpenAI:
+        def __init__(self, **kw):
+            self.embeddings = SimpleNamespace(create=create)
+
+    monkeypatch.setattr(openai_provider, "OpenAI", StubOpenAI)
+    texts = [str(i) for i in range(1100)]
+    out = openai_provider.OpenAIProvider("k", "m", "e", 1).embed(texts)
+    assert [len(c) for c in calls] == [512, 512, 76]
+    assert out == [[float(i)] for i in range(1100)]
+
+
+def _gemini_stub(monkeypatch, meta):
+    seen = {}
+
+    class Models:
+        def generate_content(self, **kw):
+            seen.update(kw)
+            return SimpleNamespace(text='{"a":1}', usage_metadata=meta, model_version="m")
+
+    class StubClient:
+        def __init__(self, **kw):
+            seen["client"] = kw
+            self.models = Models()
+
+    monkeypatch.setattr(gemini_provider.genai, "Client", StubClient)
+    return seen
+
+
+def test_gemini_25_disables_thinking_and_counts_thoughts(monkeypatch):
+    meta = SimpleNamespace(prompt_token_count=7, candidates_token_count=3, thoughts_token_count=40)
+    seen = _gemini_stub(monkeypatch, meta)
+    p = gemini_provider.GeminiProvider("k", "gemini-2.5-flash", "e", 45)
+    _, usage = p.generate("s", {}, {"type": "object"}, 50)
+    assert seen["config"].thinking_config.thinking_budget == 0
+    assert usage == LlmUsage(7, 43, "m")
+    assert seen["client"]["http_options"].retry_options.attempts == 1
+
+
+def test_gemini_other_models_keep_default_thinking(monkeypatch):
+    meta = SimpleNamespace(prompt_token_count=7, candidates_token_count=3)
+    seen = _gemini_stub(monkeypatch, meta)
+    _, usage = gemini_provider.GeminiProvider("k", "gemini-2.0-flash", "e", 45).generate("s", {}, {}, 50)
+    assert seen["config"].thinking_config is None
+    assert usage == LlmUsage(7, 3, "m")

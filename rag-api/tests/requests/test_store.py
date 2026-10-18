@@ -108,3 +108,18 @@ def test_claim_stale_skips_excluded(store):
     assert store.claim_stale(future, exclude={"a"}) is None
     assert store.get("a").attempts == 1
     assert store.claim_stale(future).request_id == "a"
+
+
+def test_add_usage_accumulates_only_while_processing(store):
+    _insert(store)
+    store.add_usage("r1", {"provider_units": 5, "input_tokens": 3, "output_tokens": 2, "model_version": "m"})
+    assert store.get("r1").usage_total is None  # still Received
+    store.mark_processing("r1")
+    store.add_usage("r1", {"provider_units": 5, "input_tokens": 3, "output_tokens": 2, "model_version": "m"})
+    store.add_usage("r1", {"provider_units": 4, "input_tokens": 1, "output_tokens": 3, "model_version": "m2"})
+    assert store.get("r1").usage_total == {
+        "provider_units": 9, "input_tokens": 4, "output_tokens": 5, "model_version": "m2"}
+    store.complete("r1", {"a": 1}, {"provider_units": 9})
+    store.add_usage("r1", {"provider_units": 100})
+    assert store.get("r1").usage_total == {"provider_units": 9}
+    store.add_usage("missing", {"provider_units": 1})  # no row: no error
