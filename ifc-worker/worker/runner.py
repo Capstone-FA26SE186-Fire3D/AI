@@ -33,9 +33,10 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def _is_stale(exc: GateError) -> bool:
-    code = exc.code.lower()
-    return exc.status == 409 or "stale" in code or "lease" in code
+def _is_stale(exc: GateError, renew: bool = False) -> bool:
+    if "stale" in exc.code.lower():
+        return True
+    return renew and exc.status == 409
 
 
 class _Stale(Exception):
@@ -61,7 +62,7 @@ class JobRunner:
                 try:
                     self._gate.renew(job_id, claim.attempt_id, claim.lease_token)
                 except GateError as exc:
-                    if _is_stale(exc):
+                    if _is_stale(exc, renew=True):
                         stale.set()
                         return
                     log.warning("renew failed: %s", exc)

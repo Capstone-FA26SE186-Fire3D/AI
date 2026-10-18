@@ -82,3 +82,12 @@ def test_delivery_bad_shape_400_and_gate_error_passthrough():
     assert c.post("/deliveries", content=b"not json", headers=KEY).status_code == 400
     res = c.post("/deliveries", json=BODY, headers=KEY)
     assert res.status_code == 503 and res.json()["code"] == "Unavailable"
+
+
+def test_invalid_receipt_id_is_502():
+    bad = claim_result()
+    bad.receipt_id = "nope"
+    r = Runner()
+    res = build(FakeGate(bad), r).post("/deliveries", json=BODY, headers=KEY)
+    assert res.status_code == 502 and res.json()["code"] == "GATE_REPLY_INVALID"
+    assert not r.ran.wait(0.2)

@@ -43,10 +43,10 @@ def ok_handler(action, body):
 
 def process_two(src, out, c):
     files = []
-    for n in ("a.json", "b.json"):
+    for n, t in (("a.json", "preview_glb"), ("b.json", "building_metadata")):
         p = out / n
         p.write_text('{"n":"%s"}' % n)
-        files.append(OutputFile(p, "Geometry", "1", {"k": 1}, "Passed", [], "application/json"))
+        files.append(OutputFile(p, t, "1", {"k": 1}, "Passed", [], "application/json"))
     return files
 
 
@@ -103,3 +103,15 @@ def test_runner_stops_on_stale_attempt(tmp_path):
     names = [a for a, _ in calls]
     assert "complete" not in names and "outputs" not in names and "fail" not in names
     assert "renew" in names
+
+
+def test_runner_fails_on_non_stale_conflict(tmp_path):
+    def handler(action, body):
+        if action == "complete":
+            return httpx.Response(409, json={"code": "OUTPUT_CONFLICT"})
+        return ok_handler(action, body)
+
+    gate, storage, calls, _ = setup(tmp_path, handler)
+    JobRunner(gate, storage, settings(), process_two).run("j1", claim())
+    fails = [b for a, b in calls if a == "fail"]
+    assert len(fails) == 1 and "OUTPUT_CONFLICT" in fails[0]["reason"]

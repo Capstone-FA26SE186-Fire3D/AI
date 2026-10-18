@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hmac
+from contextlib import asynccontextmanager
 import re
 import threading
 import uuid
@@ -33,9 +34,19 @@ def _valid_uuid(v) -> bool:
 
 def create_worker_app(settings: WorkerSettings, runner_factory: Callable[[], object],
                       gate: GateClient | None = None) -> FastAPI:
-    app = FastAPI(title="ifc-worker")
+    own_http = None
     if gate is None:
-        gate = GateClient(settings.be_base_url, settings.worker_key, httpx.Client(timeout=10.0))
+        own_http = httpx.Client(timeout=10.0)
+        gate = GateClient(settings.be_base_url, settings.worker_key, own_http)
+    toolchain = toolchain_version(settings)
+
+    @asynccontextmanager
+    async def lifespan(_app):
+        yield
+        if own_http is not None:
+            own_http.close()
+
+    app = FastAPI(title="ifc-worker", lifespan=lifespan)
     app.state.threads = []
 
     @app.get("/health")
@@ -61,10 +72,13 @@ def create_worker_app(settings: WorkerSettings, runner_factory: Callable[[], obj
         job_id = payload["job_id"]
         try:
             claim = await run_in_threadpool(gate.claim, job_id, body["eventKey"], body["payloadHash"],
-                                            payload["input_hash"], toolchain_version(settings))
+                                            payload["input_hash"], toolchain)
         except GateError as exc:
             return JSONResponse({"code": exc.code or "GATE_ERROR", "message": str(exc)},
                                 status_code=exc.status if exc.status >= 400 else 502)
+        if not _valid_uuid(claim.receipt_id):
+            return JSONResponse({"code": "GATE_REPLY_INVALID", "message": "Invalid receiptId"},
+                                status_code=502)
         if not claim.replayed:
             runner = runner_factory()
             t = threading.Thread(target=runner.run, args=(job_id, claim), daemon=True)

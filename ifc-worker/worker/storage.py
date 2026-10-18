@@ -29,15 +29,19 @@ class S3Storage:
     def download(self, key: str, dest: Path, max_bytes: int) -> None:
         bucket, k = split_key(key, self._bucket)
         obj = self._s3.get_object(Bucket=bucket, Key=k)
-        if int(obj.get("ContentLength") or 0) > max_bytes:
-            raise ValueError("Source exceeds max size")
-        total = 0
-        with open(dest, "wb") as f:
-            for chunk in obj["Body"].iter_chunks(1024 * 1024):
-                total += len(chunk)
-                if total > max_bytes:
-                    raise ValueError("Source exceeds max size")
-                f.write(chunk)
+        body = obj["Body"]
+        try:
+            if int(obj.get("ContentLength") or 0) > max_bytes:
+                raise ValueError("Source exceeds max size")
+            total = 0
+            with open(dest, "wb") as f:
+                for chunk in body.iter_chunks(1024 * 1024):
+                    total += len(chunk)
+                    if total > max_bytes:
+                        raise ValueError("Source exceeds max size")
+                    f.write(chunk)
+        finally:
+            body.close()
 
     def upload(self, key: str, src: Path, content_type: str) -> None:
         bucket, k = split_key(key, self._bucket)
