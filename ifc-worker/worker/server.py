@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import hmac
+import os
+from functools import partial
+from pathlib import Path
 from contextlib import asynccontextmanager
 import re
 import threading
@@ -88,3 +91,32 @@ def create_worker_app(settings: WorkerSettings, runner_factory: Callable[[], obj
                 "receiptId": claim.receipt_id}
 
     return app
+
+
+def create_default_app() -> FastAPI:
+    """App for `uvicorn worker.server:app`, configured from environment variables."""
+    from worker.pipeline.process import process_ifc
+    from worker.runner import JobRunner
+    from worker.storage import LocalStorage, S3Storage
+
+    settings = WorkerSettings()
+    if settings.s3_bucket:
+        storage = S3Storage(settings)
+    elif settings.environment == "development":
+        storage = LocalStorage(Path(os.environ.get("WORKER_LOCAL_STORAGE", "./data/storage")))
+    else:
+        raise RuntimeError("S3_BUCKET is required outside development")
+    process = partial(process_ifc, settings=settings)
+    http = httpx.Client(timeout=10.0)
+    gate = GateClient(settings.be_base_url, settings.worker_key, http)
+    app = create_worker_app(settings, lambda: JobRunner(gate, storage, settings, process), gate=gate)
+    app.router.on_shutdown.append(http.close)
+    return app
+
+
+def __getattr__(name: str):
+    if name == "app":  # lazy: importing this module must not need env vars
+        value = create_default_app()
+        globals()["app"] = value
+        return value
+    raise AttributeError(name)

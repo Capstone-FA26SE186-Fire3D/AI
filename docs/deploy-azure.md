@@ -33,6 +33,13 @@ Azure Container Apps vẫn khả thi, nhưng cần image build ở nơi khác; v
 
 Phía BE (.NET) phải khớp: `OrganizationAi__BaseUrl` (URL nội bộ của service), `OrganizationAi__ApiKey` (cùng giá trị `AI_API_KEY`), `OrganizationAi__TimeoutSeconds=60`. Timeout BE (60 s) phải lớn hơn `LLM_TIMEOUT_SECONDS` (45 s) để AI trả lỗi có cấu trúc trước khi BE bỏ cuộc.
 
+## IFC worker
+
+`ifc-worker/` chạy riêng (xem [ifc-worker/README.md](../ifc-worker/README.md)): VM hoặc App Service Linux với Python 3.12,
+lệnh khởi động `uvicorn worker.server:app --host 0.0.0.0 --port 8080`. Blender (`BLENDER_PATH`) chỉ cài được trên VM.
+Outbound tới BE và S3; inbound chỉ từ dispatcher của BE. Sau khi đổi toolchain (ví dụ bật Blender) cập nhật
+`ProcessingWorker__AllowedToolchains__0` bằng `python -m worker.config`.
+
 ## Cơ sở dữ liệu
 
 DB admin chạy một lần `rag-api/db/migrations/001_ai_service.sql` trên PostgreSQL (cần extension `pgvector`; `contracts/KnowledgeChunks.sql` do BE sở hữu bảng nguồn). Tài khoản runtime của service không cần quyền DDL.

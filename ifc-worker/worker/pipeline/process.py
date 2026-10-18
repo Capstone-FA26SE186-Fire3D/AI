@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
+from worker.blender import optimize_glb
 from worker.gate_client import ClaimResult
 from worker.pipeline.classify import Candidate, classify_element, classify_space, load_keywords
 from worker.pipeline.extract import read_model
@@ -49,7 +50,7 @@ def issue_dict(i: QaIssue) -> dict:
     return d
 
 
-def process_ifc(source: Path, workdir: Path, claim: ClaimResult) -> list[OutputFile]:
+def process_ifc(source: Path, workdir: Path, claim: ClaimResult, settings=None) -> list[OutputFile]:
     try:
         model, info = read_model(source)
     except ValueError as exc:
@@ -91,6 +92,8 @@ def process_ifc(source: Path, workdir: Path, claim: ClaimResult) -> list[OutputF
     workdir = Path(workdir)
     glb_path = workdir / "preview.glb"
     node_map = build_glb(meshes, info.storeys, glb_path)
+    if settings is not None and settings.blender_path:
+        optimize_glb(glb_path, settings)  # optional lightmap UVs; runner hashes the final file
 
     # Interactable positions: mesh bbox, else placement origin; none -> not a candidate.
     mesh_by_id = {m.global_id: m for m in meshes}

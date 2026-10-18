@@ -2,6 +2,10 @@
 
 Code RAG mẫu và hướng dẫn chạy ở [rag-api/README.md](rag-api/README.md).
 
+## IFC worker
+
+Worker xử lý IFC (preview GLB + building metadata) nằm ở [ifc-worker/README.md](ifc-worker/README.md).
+
 ## Codex cho thành viên team
 
 Sau khi checkout nhánh có bộ hướng dẫn, mở repo bằng Codex và yêu cầu:
