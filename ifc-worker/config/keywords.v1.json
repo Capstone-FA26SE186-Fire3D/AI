@@ -1,0 +1,29 @@
+{
+  "version": "1",
+  "spaces": {
+    "wc": ["wc", "toilet", "bath", "restroom", "sanit", "bad", "dusch", "toalett", "vaskerom", "badkamer"],
+    "kitchen": ["kitchen", "pantry", "küche", "teeküche", "kjøkken", "keuken"],
+    "corridor": ["corridor", "hallway", "flur", "gang", "korridor", "gang/hal"],
+    "stair": ["stair", "treppe", "trapp", "trap"],
+    "elevator": ["elevator", "lift", "aufzug", "heis"]
+  },
+  "water": {
+    "sink": ["lavatory", "sink", "basin", "waschbecken", "vask", "servant"],
+    "bath": ["bath", "tub", "badewanne"],
+    "shower": ["shower", "dusche", "dusj"]
+  },
+  "toilet": ["water closet", "toilet", "wc pan", "wc", "urinal", "klosett", "toalett"],
+  "extinguisher": {
+    "portable": ["extinguisher", "fire extinguisher cabinet", "feuerlöscher", "slukker"],
+    "hose_reel": ["hose reel", "hydrant"]
+  },
+  "sprinkler": ["sprinkler"],
+  "alarm": {
+    "call_point": ["fire alarm", "manual call point", "brannalarm"],
+    "detector": ["smoke detector", "heat detector", "rauchmelder"]
+  },
+  "exit": ["exit", "notausgang", "nødutgang"],
+  "elevator": ["elevator", "lift", "aufzug", "heis"],
+  "electrical": ["panelboard", "distribution board", "verteiler"],
+  "gas_valve": ["gas valve", "gashahn"]
+}

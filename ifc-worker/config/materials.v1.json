@@ -1,0 +1,27 @@
+{
+  "version": "1",
+  "hidden": ["stud", "air", "insulation", "dämm", "membrane"],
+  "rules": [
+    {"key": "ceiling.tile", "keywords": ["ceiling", "decke", "himling", "akustik", "deckenraster", "ceiling tile", "gipskarton"]},
+    {"key": "wall.tile", "keywords": ["wc trennwand", "wall tile", "wandfliesen"]},
+    {"key": "floor.tile", "keywords": ["fliesen", "tiles", "ceramic", "flis"]},
+    {"key": "floor.wood", "keywords": ["holzdielen", "dielen", "parkett", "wood floor"]},
+    {"key": "floor.carpet", "keywords": ["teppich", "carpet"]},
+    {"key": "wall.plaster", "keywords": ["verputz", "plaster", "gips", "gypsum", "plasterboard", "malt"]},
+    {"key": "wall.brick", "keywords": ["ziegel", "brick", "masonry", "tegl"]},
+    {"key": "concrete", "keywords": ["beton", "concrete", "ortbeton", "stb"]},
+    {"key": "wood", "keywords": ["holz", "wood", "lamellen", "eiche", "esche", "kiefer"]},
+    {"key": "stone", "keywords": ["naturstein", "marble", "granite", "sandstein"]},
+    {"key": "metal.painted", "keywords": ["metall lack", "paint finish", "steel", "stahl"]},
+    {"key": "metal.brushed", "keywords": ["chrome", "aluminium", "stainless"]},
+    {"key": "glass.frosted", "keywords": ["frosted", "matt"]},
+    {"key": "glass.clear", "keywords": ["glas", "glass", "klart"]}
+  ],
+  "defaults": {
+    "IfcSlab:FLOOR": "floor",
+    "IfcSlab:ROOF": "roof",
+    "IfcCovering:CEILING": "ceiling",
+    "IfcWall": "wall.plaster",
+    "IfcWallStandardCase": "wall.plaster"
+  }
+}
