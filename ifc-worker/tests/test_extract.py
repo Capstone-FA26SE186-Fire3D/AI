@@ -42,3 +42,18 @@ def test_no_storeys_does_not_crash(tmp_path: Path):
     _, info = read_model(tmp_path / "s.ifc")
     assert info.storeys == []
     assert all(e.storey_id is None for e in info.elements)
+
+
+def test_fixture_placement_separates_and_elevates(tmp_path: Path):
+    import ifcopenshell
+    import ifcopenshell.util.placement as pl
+
+    ids = build_sample_ifc(tmp_path / "s.ifc")
+    f = ifcopenshell.open(str(tmp_path / "s.ifc"))
+
+    def pos(k):
+        return pl.get_local_placement(f.by_guid(ids[k]).ObjectPlacement)[:3, 3]
+
+    assert pos("space_201")[2] == 3500.0
+    assert pos("sink_1")[2] == 0.0
+    assert tuple(pos("sink_1")[:2]) != tuple(pos("ext_1")[:2])

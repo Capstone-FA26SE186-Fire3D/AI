@@ -72,9 +72,7 @@ def classify_space(space: SpaceInfo, kw: dict) -> str | None:
 
 def _water(el: Element, seqs, kw: dict, conf: float) -> Candidate | None:
     pt = (el.predefined_type or "").upper()
-    if pt in ("TOILETPAN", "URINAL", "CISTERN", "SANITARYFOUNTAIN", "BIDET"):
-        return None
-    if _has(seqs, kw["toilet"]):
+    if pt in ("TOILETPAN", "URINAL", "CISTERN", "SANITARYFOUNTAIN", "BIDET", "WCSEAT"):
         return None
     if pt in ("WASHHANDBASIN", "SINK"):
         return Candidate("water.sink", conf)
@@ -82,6 +80,8 @@ def _water(el: Element, seqs, kw: dict, conf: float) -> Candidate | None:
         return Candidate("water.bath", conf)
     if pt == "SHOWER":
         return Candidate("water.shower", conf)
+    if _has(seqs, kw["toilet"]):
+        return None
     for key in ("sink", "bath", "shower"):
         if _has(seqs, kw["water"][key]):
             return Candidate(f"water.{key}", conf)
@@ -134,10 +134,12 @@ def classify_element(el: Element, kw: dict) -> Candidate | None:
     if c in ("IfcFlowTerminal", "IfcBuildingElementProxy", "IfcFurnishingElement"):
         fire_typed = c == "IfcFlowTerminal" and el.type_class == "IfcFireSuppressionTerminalType"
         conf_fire = 0.95 if fire_typed else 0.7
-        if _has(seqs, kw["sprinkler"]) or (
-            fire_typed and not _has(seqs, kw["extinguisher"]["hose_reel"] + kw["extinguisher"]["portable"])
-        ):
+        if pt == "SPRINKLER" or _has(seqs, kw["sprinkler"]):
             return Candidate("suppression.sprinkler", 0.9 if c == "IfcFlowTerminal" else 0.7)
+        if fire_typed and pt in ("HOSEREEL", "FIREHYDRANT"):
+            return Candidate("extinguisher.hose_reel", 0.95)
+        if fire_typed and pt == "FIREEXTINGUISHER":
+            return Candidate("extinguisher.portable", 0.95)
         if c != "IfcFurnishingElement":
             if _has(seqs, kw["extinguisher"]["hose_reel"]):
                 return Candidate("extinguisher.hose_reel", conf_fire)
@@ -164,15 +166,36 @@ def _is_hidden(name: str, hidden: list[str]) -> bool:
     return False
 
 
-def material_key(names: list[str], ifc_class: str, predefined: str | None, materials: dict) -> str | None:
-    visible = [n for n in names if n and not _is_hidden(n, materials.get("hidden", []))]
-    for n in visible:
+def _visible(names: list[str], materials: dict) -> list[str]:
+    return [n for n in names if n and not _is_hidden(n, materials.get("hidden", []))]
+
+
+def _match_rule(names: list[str], materials: dict) -> str | None:
+    for n in names:
         seqs = [tokenize(n)]
         for rule in materials["rules"]:  # ceiling rules come before tile rules in config order
             if _has(seqs, rule["keywords"]):
                 return rule["key"]
-    if visible:
-        return None  # named but unmapped
+    return None
+
+
+def material_key(names: list[str], ifc_class: str, predefined: str | None, materials: dict) -> str | None:
+    """Library key for a material: first matching rule over visible (non-hidden) names,
+    else the class default (IfcSlab FLOOR/ROOF, IfcCovering CEILING, walls), else None.
+
+    A named material matching no rule still returns the class default; use
+    `is_mapped(names, materials)` to decide whether to report IFC_UNMAPPED_MATERIAL.
+    """
+    key = _match_rule(_visible(names, materials), materials)
+    if key:
+        return key
     d = materials.get("defaults", {})
     pt = (predefined or "").upper()
     return d.get(f"{ifc_class}:{pt}") or d.get(ifc_class)
+
+
+def is_mapped(names: list[str], materials: dict) -> bool:
+    """False when there are visible material names but none matches a rule
+    (callers report these as unmapped; no names at all counts as mapped)."""
+    vis = _visible(names, materials)
+    return not vis or _match_rule(vis, materials) is not None

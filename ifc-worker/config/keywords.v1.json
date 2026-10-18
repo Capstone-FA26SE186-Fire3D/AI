@@ -1,29 +1,133 @@
 {
   "version": "1",
   "spaces": {
-    "wc": ["wc", "toilet", "bath", "restroom", "sanit", "bad", "dusch", "toalett", "vaskerom", "badkamer"],
-    "kitchen": ["kitchen", "pantry", "küche", "teeküche", "kjøkken", "keuken"],
-    "corridor": ["corridor", "hallway", "flur", "gang", "korridor", "gang/hal"],
-    "stair": ["stair", "treppe", "trapp", "trap"],
-    "elevator": ["elevator", "lift", "aufzug", "heis"]
+    "wc": [
+      "wc",
+      "toilet",
+      "bath",
+      "restroom",
+      "sanit",
+      "bad",
+      "dusch",
+      "toalett",
+      "vaskerom",
+      "badkamer",
+      "bathroom",
+      "toilets",
+      "washroom"
+    ],
+    "kitchen": [
+      "kitchen",
+      "pantry",
+      "küche",
+      "teeküche",
+      "kjøkken",
+      "keuken"
+    ],
+    "corridor": [
+      "corridor",
+      "hallway",
+      "flur",
+      "gang",
+      "korridor",
+      "gang/hal"
+    ],
+    "stair": [
+      "stair",
+      "treppe",
+      "trapp",
+      "trap",
+      "stairs",
+      "staircase",
+      "stairwell"
+    ],
+    "elevator": [
+      "elevator",
+      "lift",
+      "aufzug",
+      "heis",
+      "lifts"
+    ]
   },
   "water": {
-    "sink": ["lavatory", "sink", "basin", "waschbecken", "vask", "servant"],
-    "bath": ["bath", "tub", "badewanne"],
-    "shower": ["shower", "dusche", "dusj"]
+    "sink": [
+      "lavatory",
+      "sink",
+      "basin",
+      "waschbecken",
+      "vask",
+      "servant",
+      "washbasin",
+      "sinks"
+    ],
+    "bath": [
+      "bath",
+      "tub",
+      "badewanne",
+      "bathtub"
+    ],
+    "shower": [
+      "shower",
+      "dusche",
+      "dusj",
+      "showers"
+    ]
   },
-  "toilet": ["water closet", "toilet", "wc pan", "wc", "urinal", "klosett", "toalett"],
+  "toilet": [
+    "water closet",
+    "toilet",
+    "wc pan",
+    "urinal",
+    "klosett",
+    "toalett",
+    "toilets"
+  ],
   "extinguisher": {
-    "portable": ["extinguisher", "fire extinguisher cabinet", "feuerlöscher", "slukker"],
-    "hose_reel": ["hose reel", "hydrant"]
+    "portable": [
+      "extinguisher",
+      "fire extinguisher cabinet",
+      "feuerlöscher",
+      "slukker"
+    ],
+    "hose_reel": [
+      "hose reel",
+      "hydrant"
+    ]
   },
-  "sprinkler": ["sprinkler"],
+  "sprinkler": [
+    "sprinkler"
+  ],
   "alarm": {
-    "call_point": ["fire alarm", "manual call point", "brannalarm"],
-    "detector": ["smoke detector", "heat detector", "rauchmelder"]
+    "call_point": [
+      "fire alarm",
+      "manual call point",
+      "brannalarm"
+    ],
+    "detector": [
+      "smoke detector",
+      "heat detector",
+      "rauchmelder"
+    ]
   },
-  "exit": ["exit", "notausgang", "nødutgang"],
-  "elevator": ["elevator", "lift", "aufzug", "heis"],
-  "electrical": ["panelboard", "distribution board", "verteiler"],
-  "gas_valve": ["gas valve", "gashahn"]
+  "exit": [
+    "exit",
+    "notausgang",
+    "nødutgang"
+  ],
+  "elevator": [
+    "elevator",
+    "lift",
+    "aufzug",
+    "heis",
+    "lifts"
+  ],
+  "electrical": [
+    "panelboard",
+    "distribution board",
+    "verteiler"
+  ],
+  "gas_valve": [
+    "gas valve",
+    "gashahn"
+  ]
 }

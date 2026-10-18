@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from worker.pipeline.classify import classify_element, classify_space, load_keywords, material_key
+from worker.pipeline.classify import classify_element, classify_space, is_mapped, load_keywords, material_key
 from worker.pipeline.extract import Element, SpaceInfo
 
 CFG = Path(__file__).parent.parent / "config"
@@ -63,6 +63,38 @@ def test_material_ceiling_before_tile():
     assert material_key(["Akustik Fliesen"], "IfcCovering", None, MAT) == "ceiling.tile"
     assert material_key(["Fliesen"], "IfcSlab", "FLOOR", MAT) == "floor.tile"
     assert material_key(["Stud", "Brick"], "IfcWall", None, MAT) == "wall.brick"
-    assert material_key([], "IfcSlab", "FLOOR", MAT) == "floor"
-    assert material_key([], "IfcSlab", "ROOF", MAT) == "roof"
-    assert material_key(["Unobtainium"], "IfcWall", None, MAT) is None
+    assert material_key([], "IfcSlab", "FLOOR", MAT) == "floor.tile"
+    assert material_key([], "IfcSlab", "ROOF", MAT) == "concrete"
+    assert material_key(["Unobtainium"], "IfcWall", None, MAT) == "wall.plaster"
+    assert not is_mapped(["Unobtainium"], MAT)
+    assert is_mapped(["Stud", "Brick"], MAT) and is_mapped([], MAT)
+    assert material_key([], "IfcCovering", "CEILING", MAT) == "ceiling.tile"
+
+
+def test_fire_typed_flow_terminal_uses_predefined_type():
+    def ft(pt, name="X"):
+        e = el("IfcFlowTerminal", name, pt)
+        e.type_class = "IfcFireSuppressionTerminalType"
+        return classify_element(e, KW)
+
+    assert ft("HOSEREEL").catalog_key == "extinguisher.hose_reel"
+    assert ft("FIREHYDRANT").catalog_key == "extinguisher.hose_reel"
+    assert ft("SPRINKLER").catalog_key == "suppression.sprinkler"
+    assert ft("BREECHINGINLET") is None
+
+
+def test_water_predefined_type_before_toilet_keywords():
+    c = classify_element(el("IfcSanitaryTerminal", "WC Basin", "WASHHANDBASIN"), KW)
+    assert c.catalog_key == "water.sink"
+    assert classify_element(el("IfcSanitaryTerminal", "Seat", "WCSEAT"), KW) is None
+    assert classify_element(el("IfcSanitaryTerminal", "WC Pan"), KW) is None
+
+
+def test_english_variants():
+    assert classify_element(el("IfcSanitaryTerminal", "Washbasin"), KW).catalog_key == "water.sink"
+    assert classify_element(el("IfcSanitaryTerminal", "Bathtub"), KW).catalog_key == "water.bath"
+    assert classify_space(SpaceInfo("g", "1", "Staircase", None, None), KW) == "stair"
+    assert classify_space(SpaceInfo("g", "1", "Washroom", None, None), KW) == "wc"
+    assert material_key(["Wall Tiles"], "IfcWall", None, MAT) == "wall.tile"
+    assert material_key(["Paint Matt White"], "IfcWall", None, MAT) != "glass.frosted"
+    assert not material_key(["Paint Matt White"], "IfcWall", None, MAT).startswith("glass")
