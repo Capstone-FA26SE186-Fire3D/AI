@@ -21,6 +21,8 @@ class WorkerSettings(BaseSettings):
     blender_path: str = ""
     max_source_bytes: int = 524_288_000
     environment: str = "development"
+    # Jobs run at once; further deliveries get 503 WORKER_BUSY before claiming (dispatcher redelivers).
+    max_concurrent_jobs: int = 1
 
 
 @lru_cache(maxsize=8)

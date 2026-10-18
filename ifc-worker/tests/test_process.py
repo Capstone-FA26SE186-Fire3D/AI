@@ -181,6 +181,9 @@ def test_outlier_beyond_range_is_dropped_with_error(tmp_path: Path):
 
     src = tmp_path / "source.ifc"
     ids = build_sample_ifc(src)
+    base_out = tmp_path / "base"
+    base_out.mkdir()
+    _, base_bld = process_ifc(src, base_out, make_claim())  # same model, no outlier
     f = ifcopenshell.open(str(src))
     loc = f.by_guid(ids["ext_1"]).ObjectPlacement.RelativePlacement.Location
     loc.Coordinates = (3e8, 1500.0, 0.0)  # 300 km away from everything else
@@ -196,6 +199,11 @@ def test_outlier_beyond_range_is_dropped_with_error(tmp_path: Path):
         assert all(abs(n) <= 1e5 for n in it["position"] + it.get("bbox", []))
     sem = {s["ifcGlobalId"] for s in glb.metadata["semanticMapping"]}
     assert ids["ext_1"] in sem
+    # Median recentring: one far outlier must not push the rest of the model out of range.
+    assert err[0]["ifcGlobalIds"] == [ids["ext_1"]]
+    expected = {i["ifcGlobalId"] for i in base_bld.metadata["interactables"]} - {ids["ext_1"]}
+    assert expected
+    assert {i["ifcGlobalId"] for i in bld.metadata["interactables"]} == expected
 
 
 def test_semantic_mapping_puts_candidates_and_qa_ids_first(tmp_path: Path):

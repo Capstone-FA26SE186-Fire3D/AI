@@ -74,12 +74,12 @@ def group_of(storey_id: str | None, known: set[str]) -> str:
 
 
 def recentre_offset(meshes: list["ElementMesh"], fallback_points: list = ()) -> tuple[float, float, float]:
-    """GLB-space origin shift: centre of the combined mesh bbox on x and z (y stays 0 so elevations
-    stay true); without meshes the mean of the fallback points, else 0. Rounded to the millimetre."""
+    """GLB-space origin shift: median of the per-mesh bbox centres on x and z (y stays 0 so elevations
+    stay true; the median keeps one far outlier from dragging the whole model out of range); without
+    meshes the mean of the fallback points, else 0. Rounded to the millimetre."""
     if meshes:
-        lo = np.min([m.vertices.min(axis=0) for m in meshes], axis=0)
-        hi = np.max([m.vertices.max(axis=0) for m in meshes], axis=0)
-        c = (lo + hi) / 2.0
+        centres = [(m.vertices.min(axis=0) + m.vertices.max(axis=0)) / 2.0 for m in meshes]
+        c = np.median(np.asarray(centres, dtype=float), axis=0)
     elif len(fallback_points):
         c = np.mean(np.asarray(fallback_points, dtype=float), axis=0)
     else:

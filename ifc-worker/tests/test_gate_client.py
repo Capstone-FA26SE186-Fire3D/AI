@@ -30,9 +30,13 @@ def test_claim_parses_root_or_result():
     assert b'"toolchainVersion"' in seen["body"] and b'"inputHash"' in seen["body"]
     assert c.attempt_id == "a1" and c.output_prefix == "out/j1/" and not c.replayed
     assert c.lease_until.year == 2026
+    assert c.scenario_version_id == "sv"
 
     wrapped = make(lambda r: httpx.Response(200, json={"result": CLAIM})).claim("j1", "e", "p", "i", "t")
     assert wrapped.lease_token == "lt" and wrapped.source_hash == "h" * 64
+
+    plain = dict(CLAIM, scenarioVersionId=None)
+    assert make(lambda r: httpx.Response(200, json=plain)).claim("j1", "e", "p", "i", "t").scenario_version_id is None
 
 
 def test_gate_error_maps_code():

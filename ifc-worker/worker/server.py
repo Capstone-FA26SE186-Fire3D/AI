@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hmac
+import logging
 import os
 from functools import partial
 from pathlib import Path
@@ -19,6 +20,16 @@ from worker.config import WorkerSettings, toolchain_version
 from worker.gate_client import GateClient, GateError
 
 _HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
+# BE ProcessingWorker MachineKey is 32-512 chars; a shorter key is a misconfiguration.
+MIN_WORKER_KEY_LENGTH = 32
+PACKAGE_JOB_REASON = "Package jobs are handled by the Unity package worker"
+
+log = logging.getLogger("ifc-worker")
+
+
+def _require_worker_key(settings: WorkerSettings) -> None:
+    if len(settings.worker_key or "") < MIN_WORKER_KEY_LENGTH:
+        raise RuntimeError(f"WORKER_KEY must be at least {MIN_WORKER_KEY_LENGTH} characters")
 
 
 def _bad(message: str) -> JSONResponse:
@@ -37,6 +48,7 @@ def _valid_uuid(v) -> bool:
 
 def create_worker_app(settings: WorkerSettings, runner_factory: Callable[[], object],
                       gate: GateClient | None = None) -> FastAPI:
+    _require_worker_key(settings)
     own_http = None
     if gate is None:
         own_http = httpx.Client(timeout=10.0)
@@ -51,6 +63,13 @@ def create_worker_app(settings: WorkerSettings, runner_factory: Callable[[], obj
 
     app = FastAPI(title="ifc-worker", lifespan=lifespan)
     app.state.threads = []
+    slots = threading.BoundedSemaphore(max(1, settings.max_concurrent_jobs))
+
+    def run_and_release(runner, job_id, claim):
+        try:
+            runner.run(job_id, claim)
+        finally:
+            slots.release()
 
     @app.get("/health")
     def health():
@@ -73,20 +92,36 @@ def create_worker_app(settings: WorkerSettings, runner_factory: Callable[[], obj
                 or not _HEX64.match(payload["input_hash"])):
             return _bad("Invalid delivery shape")
         job_id = payload["job_id"]
+        # Take a slot before claiming: a claim we cannot run would hold the lease until it expires.
+        if not slots.acquire(blocking=False):
+            return JSONResponse({"code": "WORKER_BUSY", "message": "No free job slot"}, status_code=503)
+        started = False
         try:
-            claim = await run_in_threadpool(gate.claim, job_id, body["eventKey"], body["payloadHash"],
-                                            payload["input_hash"], toolchain)
-        except GateError as exc:
-            return JSONResponse({"code": exc.code or "GATE_ERROR", "message": str(exc)},
-                                status_code=exc.status if exc.status >= 400 else 502)
-        if not _valid_uuid(claim.receipt_id):
-            return JSONResponse({"code": "GATE_REPLY_INVALID", "message": "Invalid receiptId"},
-                                status_code=502)
-        if not claim.replayed:
-            runner = runner_factory()
-            t = threading.Thread(target=runner.run, args=(job_id, claim), daemon=True)
-            app.state.threads.append(t)
-            t.start()
+            try:
+                claim = await run_in_threadpool(gate.claim, job_id, body["eventKey"], body["payloadHash"],
+                                                payload["input_hash"], toolchain)
+            except GateError as exc:
+                return JSONResponse({"code": exc.code or "GATE_ERROR", "message": str(exc)},
+                                    status_code=exc.status if exc.status >= 400 else 502)
+            if not _valid_uuid(claim.receipt_id):
+                return JSONResponse({"code": "GATE_REPLY_INVALID", "message": "Invalid receiptId"},
+                                    status_code=502)
+            if not claim.replayed and claim.scenario_version_id:
+                # The claim is committed (ACK below); hand the job back as failed instead of running IFC.
+                try:
+                    await run_in_threadpool(gate.fail, job_id, claim.attempt_id, claim.lease_token,
+                                            PACKAGE_JOB_REASON)
+                except GateError as exc:
+                    log.warning("job %s: failing package job failed: %s", job_id, exc)
+            elif not claim.replayed:
+                runner = runner_factory()
+                t = threading.Thread(target=run_and_release, args=(runner, job_id, claim), daemon=True)
+                app.state.threads.append(t)
+                t.start()
+                started = True
+        finally:
+            if not started:
+                slots.release()
         return {"eventKey": body["eventKey"], "payloadHash": body["payloadHash"],
                 "receiptId": claim.receipt_id}
 
@@ -100,6 +135,7 @@ def create_default_app() -> FastAPI:
     from worker.storage import LocalStorage, S3Storage
 
     settings = WorkerSettings()
+    _require_worker_key(settings)
     if settings.s3_bucket:
         storage = S3Storage(settings)
     elif settings.environment == "development":

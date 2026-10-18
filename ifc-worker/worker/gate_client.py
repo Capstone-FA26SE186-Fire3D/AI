@@ -27,6 +27,7 @@ class ClaimResult:
     input_hash: str
     source_key: str
     source_hash: str
+    scenario_version_id: str | None = None
 
 
 def parse_dt(value) -> datetime:
@@ -79,7 +80,8 @@ class GateClient:
                 lease_token=str(d["leaseToken"]), lease_until=parse_dt(d["leaseUntil"]),
                 receipt_id=str(d["receiptId"]), output_prefix=str(d.get("outputPrefix") or ""),
                 input_hash=str(d.get("inputHash") or input_hash), source_key=str(d.get("sourceKey") or ""),
-                source_hash=str(d.get("sourceHash") or ""))
+                source_hash=str(d.get("sourceHash") or ""),
+                scenario_version_id=str(d["scenarioVersionId"]) if d.get("scenarioVersionId") else None)
         except (KeyError, ValueError) as exc:
             raise GateError(502, "InvalidGateResponse", f"claim response: {exc}") from exc
 
