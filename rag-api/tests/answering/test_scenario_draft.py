@@ -36,9 +36,15 @@ BIM = {
     ],
     "qualityFlags": [],
     "runtime": {
-        "runtimeVersion": "1.4.0", "protocolVersion": "1",
-        "capabilities": ["fire.source", {"id": "npc.evacuee", "version": "2.1.0"}, {"id": "equipment.extinguisher", "version": "1.0.0"}],
-        "capabilityContracts": {},
+        "runtimeVersion": "2.0.0", "protocolVersion": "1",
+        "capabilities": ["fire.source", "npc.guide", "extinguisher.portable", "no.contract", "bad.version"],
+        "capabilityContracts": {
+            "fire.source": {"version": "1.0.0", "objectKinds": ["Hazard"]},
+            "npc.guide": {"version": "1.0.0", "objectKinds": ["Npc"], "parameters": {"type": "object"}},
+            "extinguisher.portable": {"version": "1.0.0", "objectKinds": ["Equipment"]},
+            "bad.version": {"version": "latest", "objectKinds": ["Hazard"]},
+            "unlisted.cap": {"version": "1.0.0", "objectKinds": ["Hazard"]},
+        },
     },
 }
 POST = SourcePin(
@@ -98,7 +104,7 @@ def test_draft_pins_geometry_even_if_model_changes_it():
     geo = resp.scenario_draft.state["geometry"]
     assert geo == {"artifactId": BIM["geometry"]["artifactId"], "sha256Hash": BIM["geometry"]["sha256Hash"]}
     assert resp.scenario_draft.state["schemaVersion"] == "fet3d.editor/1"
-    assert resp.scenario_draft.state["runtimeVersion"] == "1.4.0"
+    assert resp.scenario_draft.state["runtimeVersion"] == "2.0.0"
     assert resp.recommendation == resp.scenario_draft.notes and "**" not in resp.recommendation
     assert resp.citations and resp.bim_anchors[0].revision_id == BIM["revisionId"]
 
@@ -115,19 +121,47 @@ def test_object_with_unknown_anchor_removed_with_limitation():
 def test_capability_not_in_runtime_removed():
     objs = [
         _obj(id="fire-x", kind="Hazard", capabilityId="fire.unknown"),
-        _obj(id="fire-nover", kind="Hazard", capabilityId="fire.source"),
+        _obj(id="fire-1", kind="Hazard", capabilityId="fire.source"),
         _obj(id="hz-none", kind="Hazard"),
-        _obj(id="npc-1", kind="Npc", capabilityId="npc.evacuee", parameters='{"behaviour": "panic"}'),
-        _obj(id="npc-badjson", kind="Npc", capabilityId="npc.evacuee", parameters="not json"),
+        _obj(id="npc-1", kind="Npc", capabilityId="npc.guide", parameters='{"behaviour": "panic"}'),
+        _obj(id="npc-badjson", kind="Npc", capabilityId="npc.guide", parameters="not json"),
+        _obj(id="nocontract", kind="Equipment", capabilityId="no.contract"),
+        _obj(id="badver", kind="Hazard", capabilityId="bad.version"),
+        _obj(id="unlisted", kind="Hazard", capabilityId="unlisted.cap"),
+        _obj(id="wrong-kind", kind="Npc", capabilityId="fire.source"),
     ]
     resp, _ = _run(_req(), lambda p: _draft(p, objects=objs))
     state_objs = {o["id"]: o for o in resp.scenario_draft.state["objects"]}
-    assert set(state_objs) == {"npc-1", "npc-badjson"}
-    assert state_objs["npc-1"]["capability"] == {"id": "npc.evacuee", "version": "2.1.0"}
+    assert set(state_objs) == {"fire-1", "npc-1", "npc-badjson"}
+    assert state_objs["fire-1"]["capability"] == {"id": "fire.source", "version": "1.0.0"}
     assert state_objs["npc-1"]["parameters"] == {"behaviour": "panic"}
     assert state_objs["npc-badjson"]["parameters"] == {}
-    for oid in ("fire-x", "fire-nover", "hz-none"):
+    for oid in ("fire-x", "hz-none", "nocontract", "badver", "unlisted", "wrong-kind"):
         assert any(oid in l for l in resp.limitations)
+    assert any("wrong-kind" in l and "loại đối tượng" in l for l in resp.limitations)
+
+
+def test_summary_has_capability_versions_and_kinds():
+    _, provider = _run(_req(), lambda p: _draft(p))
+    caps = {c["id"]: c for c in provider.calls[0]["bim"]["capabilities"]}
+    assert caps["fire.source"] == {"id": "fire.source", "version": "1.0.0", "objectKinds": ["Hazard"]}
+    assert "no.contract" not in caps and "bad.version" not in caps and "unlisted.cap" not in caps
+
+
+def test_removal_limitation_is_plain_and_bounded():
+    evil = "<b>x</b>**" + "a" * 600
+    objs = [_obj(), _obj(id=evil, kind="Hazard")]
+    resp, _ = _run(_req(), lambda p: _draft(p, objects=objs))
+    assert [o["id"] for o in resp.scenario_draft.state["objects"]] == ["spawn-1"]
+    assert resp.limitations
+    for l in resp.limitations:
+        assert len(l) <= 500 and "<" not in l and "**" not in l
+
+
+def test_state_limitations_come_first():
+    objs = [_obj(id=f"bad{i}", kind="Hazard") for i in range(25)]
+    resp, _ = _run(_req(), lambda p: _draft(p, objects=objs, limitations=["model note"]))
+    assert len(resp.limitations) == 20 and "bad0" in resp.limitations[0]
 
 
 def test_bim_anchors_only_from_pin():

@@ -11,13 +11,13 @@ from jsonschema import Draft202012Validator
 from app.answering.pipeline import (
     NO_SOURCE, Grounded, PipelineDeps, _terminal, ground, parse_grounded, vet_text,
 )
-from app.answering.prompts import DRAFT_SCHEMA, bim_summary
+from app.answering.prompts import DRAFT_SCHEMA, bim_summary, usable_capabilities
 from app.answering.usage import to_usage
 from app.answering.validate import clean_list, to_plain_text
 from app.sources.resolver import PreparedSources
 from app.v2.errors import refuse
 from app.v2.schemas import (
-    AdapterRequest, AdapterResponse, BimAnchor, BimPin, RuleResult, ScenarioDraftOut, capability_ids,
+    AdapterRequest, AdapterResponse, BimAnchor, BimPin, RuleResult, ScenarioDraftOut,
 )
 
 _SCHEMA = json.loads(
@@ -35,7 +35,7 @@ def _num(v: object) -> bool:
     return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
 
 
-def _build_object(raw: object, bim: BimPin, caps: dict[str, str | None]) -> tuple[dict | None, str | None]:
+def _build_object(raw: object, bim: BimPin, caps: dict[str, tuple[str, list[str]]]) -> tuple[dict | None, str | None]:
     """Return (object, None) or (None, reason)."""
     if not isinstance(raw, dict):
         return None, "không phải đối tượng hợp lệ"
@@ -55,10 +55,11 @@ def _build_object(raw: object, bim: BimPin, caps: dict[str, str | None]) -> tupl
     capability = None
     if cap_id is not None:
         if cap_id not in caps:
-            return None, "capability không có trong runtime đã ghim"
-        if caps[cap_id] is None:
-            return None, "runtime không cung cấp phiên bản cho capability"
-        capability = {"id": cap_id, "version": caps[cap_id]}
+            return None, "capability không có hợp đồng hợp lệ trong runtime đã ghim"
+        version, kinds = caps[cap_id]
+        if kind not in kinds:
+            return None, "capability không hỗ trợ loại đối tượng này"
+        capability = {"id": cap_id, "version": version}
     elif kind in _NEEDS_CAPABILITY:
         return None, "thiếu capability bắt buộc"
     pos = raw.get("position")
@@ -123,12 +124,12 @@ def build_state(model_state: dict, bim: BimPin) -> tuple[dict, list[str]]:
         if modes:
             state["modePolicy"] = {"allowedModes": modes}
 
-    caps = capability_ids(bim.runtime)
+    caps = usable_capabilities(bim.runtime)
     objects: list[dict] = []
     seen: set[str] = set()
     for raw in ms.get("objects") if isinstance(ms.get("objects"), list) else []:
         oid = raw.get("id") if isinstance(raw, dict) else None
-        label = oid if isinstance(oid, str) and oid else "?"
+        label = to_plain_text(oid, 64) or "?" if isinstance(oid, str) else "?"
         obj, reason = _build_object(raw, bim, caps)
         if obj is not None and not (isinstance(oid, str) and _ID.match(oid)):
             obj, reason = None, "mã đối tượng không hợp lệ"
@@ -234,5 +235,5 @@ def run_scenario_draft(
         request_id=req.request_id, response_type=req.response_type, status="NeedsUserEdit",
         recommendation=notes, scenario_draft=ScenarioDraftOut(state=state, notes=notes), bim_anchors=anchors,
         citations=p.citations, rule_results=rules, confidence="medium", assumptions=p.assumptions,
-        limitations=(p.limitations + state_limits)[:20], usage=to_usage(g.llm, req.limits),
+        limitations=clean_list(state_limits + p.limitations), usage=to_usage(g.llm, req.limits),
     ))

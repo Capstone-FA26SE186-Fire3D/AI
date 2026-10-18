@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 from app.index.base import ScoredChunk
-from app.v2.schemas import BimPin, capability_ids
+import re
+
+from app.v2.schemas import BimPin, RuntimePin
 
 ANSWER_SCHEMA: dict = {
     "type": "object",
@@ -138,12 +140,32 @@ def build_payload(
     return payload
 
 
+_SEMVER = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
+
+
+def usable_capabilities(runtime: RuntimePin | None) -> dict[str, tuple[str, list[str]]]:
+    """Capability id -> (contract version, objectKinds); only ids listed in capabilities with a semver contract."""
+    out: dict[str, tuple[str, list[str]]] = {}
+    if runtime is None:
+        return out
+    for cid in runtime.capabilities:
+        contract = runtime.capability_contracts.get(cid) if isinstance(cid, str) else None
+        if not isinstance(contract, dict):
+            continue
+        version = contract.get("version")
+        if not isinstance(version, str) or not _SEMVER.match(version):
+            continue
+        kinds = contract.get("objectKinds")
+        out[cid] = (version, [k for k in kinds if isinstance(k, str)] if isinstance(kinds, list) else [])
+    return out
+
+
 def bim_summary(bim: BimPin, max_anchors: int = 300) -> dict:
     """Compact view of the pinned BIM for the model: no geometry hashes, transforms, annotations or raw IFC."""
     rank = {t: i for i, t in enumerate(_PRIORITY)}
     ordered = sorted(bim.anchors, key=lambda a: rank.get(a.semantic_type, len(_PRIORITY)))
     chosen = ordered[: max(0, max_anchors)]
-    caps = capability_ids(bim.runtime)
+    caps = usable_capabilities(bim.runtime)
     return {
         "revisionId": bim.revision_id,
         "floors": [
@@ -155,7 +177,7 @@ def bim_summary(bim: BimPin, max_anchors: int = 300) -> dict:
             for a in chosen
         ],
         "anchorsTotal": len(bim.anchors),
-        "capabilities": [{"id": cid, "version": ver} for cid, ver in caps.items()],
+        "capabilities": [{"id": cid, "version": ver, "objectKinds": kinds} for cid, (ver, kinds) in caps.items()],
         "qualityFlags": [
             {"code": q.code, "severity": q.severity, "message": q.message, "ifcGlobalId": q.ifc_global_id}
             for q in bim.quality_flags
