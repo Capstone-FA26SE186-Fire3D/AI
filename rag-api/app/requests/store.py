@@ -129,12 +129,13 @@ class RequestStore:
             return False
         return True
 
-    def mark_processing(self, request_id: str) -> None:
+    def mark_processing(self, request_id: str) -> bool:
+        """Received -> Processing; False when the row is missing or not Received."""
         now = _now()
         with self._engine.begin() as conn:
-            conn.execute(
+            result = conn.execute(
                 update(self._t)
-                .where(self._t.c.request_id == request_id)
+                .where(self._t.c.request_id == request_id, self._t.c.status == "Received")
                 .values(
                     status="Processing",
                     processing_started_at=now,
@@ -142,13 +143,15 @@ class RequestStore:
                     updated_at=now,
                 )
             )
+        return result.rowcount == 1
 
-    def complete(self, request_id: str, response: dict, usage_total: dict) -> None:
+    def complete(self, request_id: str, response: dict, usage_total: dict) -> bool:
+        """Processing -> Completed; False when someone else already completed (or the row is gone)."""
         now = _now()
         with self._engine.begin() as conn:
-            conn.execute(
+            result = conn.execute(
                 update(self._t)
-                .where(self._t.c.request_id == request_id)
+                .where(self._t.c.request_id == request_id, self._t.c.status == "Processing")
                 .values(
                     status="Completed",
                     response=response,
@@ -157,6 +160,7 @@ class RequestStore:
                     updated_at=now,
                 )
             )
+        return result.rowcount == 1
 
     def delete(self, request_id: str) -> None:
         with self._engine.begin() as conn:

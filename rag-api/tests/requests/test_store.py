@@ -77,3 +77,25 @@ def test_purge_stale_received_keeps_processing(store):
     assert store.purge_stale_received(cutoff) == 1
     assert store.get("recv") is None
     assert store.get("proc") is not None
+
+
+def test_mark_processing_only_from_received(store):
+    assert store.mark_processing("missing") is False
+    _insert(store)
+    assert store.mark_processing("r1") is True
+    assert store.mark_processing("r1") is False  # already Processing
+    assert store.get("r1").attempts == 1
+    assert store.complete("r1", {"a": 1}, {"t": 1}) is True
+    assert store.mark_processing("r1") is False  # Completed stays Completed
+    assert store.get("r1").status == "Completed"
+
+
+def test_complete_only_from_processing(store):
+    _insert(store)
+    assert store.complete("r1", {"a": 1}, {"t": 1}) is False  # still Received
+    assert store.get("r1").status == "Received"
+    store.mark_processing("r1")
+    assert store.complete("r1", {"a": 1}, {"t": 1}) is True
+    assert store.complete("r1", {"a": 2}, {"t": 2}) is False  # no overwrite
+    rec = store.get("r1")
+    assert rec.response == {"a": 1} and rec.usage_total == {"t": 1}
