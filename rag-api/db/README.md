@@ -12,6 +12,9 @@ psql "$ADMIN_DATABASE_URL" -f db/migrations/001_ai_service.sql
 ```
 
 Service AI không tự tạo bảng trên Postgres.
+Migration này không cần extension pgvector (chỉ `knowledge_chunks` của BE cần). Trên Supabase, pgvector nằm trong
+schema `extensions`; đặt `ALTER ROLE <ai_login> SET search_path = public, extensions;` cho login của AI. Retention của
+`ai_service.requests` (xoá row `Completed` quá 90 ngày): xem `../../docs/deploy-azure.md`.
 
 ## Cấp quyền cho login của AI
 

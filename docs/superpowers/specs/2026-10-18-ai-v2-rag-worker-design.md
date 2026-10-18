@@ -12,7 +12,7 @@ Docs `origin/main` `7d9d6ba` (`ifc_ingestion_visual_interaction.md`, `fire_evacu
 3. Organization nhận KnowledgeAnswer/ScenarioDraft có nguồn, neo đúng BIM pin; Trainee nhận KnowledgeAnswer theo Learn/Training/Result (A4, A5).
 4. Timeout/restart không làm BE hoàn hoặc trừ quota sai (A6).
 5. Một job IFC tạo `preview_glb` + `building_metadata` hợp lệ qua gate lease của BE (A7).
-6. Có Docker/CI/eval để chọn provider bằng số liệu; tài liệu triển khai Azure (A8).
+6. Có CI/eval để chọn provider bằng số liệu; tài liệu triển khai Azure App Service (A8; Docker bỏ theo quyết định 2026-10-18).
 
 Không thuộc phạm vi: deploy Azure thật, nghiệm thu với BE thật, sửa BE/Docs, thay asset theo bbox, NavMesh source/hazard grid
 (Unity build worker làm NavMesh), merge nhiều file IFC/revision.
@@ -41,7 +41,7 @@ ifc-worker/            process riêng, requirements riêng
   config/              keywords.v1.json, materials.v1.json
   scripts/blender_optimize.py
   tests/
-Dockerfile ×2, docker-compose.yml, .github/workflows/ci.yml, docs/deploy-azure.md
+.github/workflows/ci.yml, docs/deploy-azure.md   (Dockerfile/compose bỏ theo quyết định 2026-10-18)
 ```
 
 Route cũ có rò rỉ phạm vi (một collection chung, không lọc) và Docs yêu cầu loại khỏi production; chúng chuyển vào `app/legacy` và chỉ
@@ -145,9 +145,11 @@ bảng trên Postgres (SQLite dev thì tự tạo).
   Chọn bằng `LLM_PROVIDER` (mặc định `openai`); không fallback tự động sang provider khác.
 - `evals/`: `dataset.jsonl` (câu hỏi + nguồn + kỳ vọng: status, citation bắt buộc, phải từ chối), `run_eval.py --provider fake|openai|gemini`
   → JSON + Markdown: citation coverage, abstain đúng, injection resisted, safety refusal đúng, latency, tokens. Ngưỡng do team chốt.
-- Dockerfile `rag-api` và `ifc-worker` (non-root), `docker-compose.yml` dev (api + pgvector), CI GitHub Actions (pytest hai package, service
-  pgvector), log JSON, `GET /ready` (DB + cấu hình provider), `docs/deploy-azure.md` (Container Apps, Key Vault, ingress nội bộ, biến môi trường
-  khớp `OrganizationAi__*`).
+- ~~Dockerfile `rag-api` và `ifc-worker` (non-root), `docker-compose.yml` dev (api + pgvector)~~ — **bỏ theo quyết định của người dùng
+  (2026-10-18)**: repo không có Dockerfile/compose; triển khai mặc định là Azure App Service (Linux, code deploy), Container Apps chỉ là
+  phương án phụ với image build ngoài repo. Còn lại: CI GitHub Actions (pytest hai package; test pgvector chạy khi có
+  `FIRE3D_AI_TEST_PG_DSN`), log JSON, `GET /health` (liveness) và `GET /ready` (readiness: request store), `docs/deploy-azure.md`
+  (App Service, Key Vault, mạng riêng, biến môi trường khớp `OrganizationAi__*`).
 
 ## A7 — Worker IFC
 
