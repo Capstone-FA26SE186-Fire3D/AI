@@ -11,7 +11,7 @@ from worker.blender import optimize_glb
 from worker.gate_client import ClaimResult
 from worker.pipeline.classify import Candidate, classify_element, classify_space, load_keywords
 from worker.pipeline.extract import read_model
-from worker.pipeline.geometry import extract_meshes, placement_of, recentre_offset
+from worker.pipeline.geometry import extract_meshes, extract_space_boxes, placement_of, recentre_offset
 from worker.pipeline.glb import build_glb
 from worker.pipeline.metadata import building_metadata, geometry_metadata, valid_global_id
 from worker.pipeline.qa import MAX_IDS, QaIssue, outcome, run_qa
@@ -70,6 +70,8 @@ def process_ifc(source: Path, workdir: Path, claim: ClaimResult, settings=None) 
             raw_candidates[el.global_id] = c
 
     meshes, report = extract_meshes(model, info, materials)
+    space_raw, space_missing = extract_space_boxes(model, info)
+    report.missing_body.extend(space_missing)  # QA IFC_NO_BODY_GEOMETRY (Warning); no bbox is written
 
     # Placements of candidates (GLB metres, before recentring).
     placements: dict[str, tuple[tuple[float, float, float], float]] = {}
@@ -114,6 +116,15 @@ def process_ifc(source: Path, workdir: Path, claim: ClaimResult, settings=None) 
             continue
         positions[gid] = box
     candidates = {g: c for g, c in raw_candidates.items() if g in positions and valid_global_id(g)}
+
+    # Space boxes in the GLB frame: same axis swap and the same recentring offset as the meshes.
+    space_boxes: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    for gid, (lo, hi) in space_raw.items():
+        box = (lo - off, hi - off)
+        if max(np.abs(box[0]).max(), np.abs(box[1]).max()) > COORD_LIMIT:
+            out_of_range.append(gid)
+            continue
+        space_boxes[gid] = box
 
     issues = run_qa(info, candidates, report)
     if out_of_range:
@@ -162,7 +173,8 @@ def process_ifc(source: Path, workdir: Path, claim: ClaimResult, settings=None) 
     qa_ids = [g for i in issues for g in i.ifc_global_ids]
     geo_md = geometry_metadata(info, info.storeys, node_map, extra_ids, origin_offset=offset,
                                candidate_ids=list(candidates), qa_ids=qa_ids)
-    bld_md = building_metadata(info, candidates, positions, materials_used, issues, claim.source_hash, rotations)
+    bld_md = building_metadata(info, candidates, positions, materials_used, issues, claim.source_hash, rotations,
+                               space_boxes=space_boxes, node_map=node_map)
 
     bld_path = workdir / "building_metadata.json"
     bld_path.write_text(json.dumps(bld_md, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")

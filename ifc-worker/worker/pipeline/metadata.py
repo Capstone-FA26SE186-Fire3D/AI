@@ -81,7 +81,8 @@ def _resolver(info: IfcModelInfo, storeys: list[Storey]):
     return floor_for, elev
 
 
-_ANCHOR_CLASSES = ("IfcDoor", "IfcStair", "IfcStairFlight", "IfcRamp", "IfcRampFlight")
+STAIR_CLASSES = ("IfcStair", "IfcStairFlight", "IfcRamp", "IfcRampFlight")
+_ANCHOR_CLASSES = ("IfcDoor",) + STAIR_CLASSES
 
 
 def geometry_metadata(
@@ -189,9 +190,17 @@ def building_metadata(
     issues: list[QaIssue],
     source_sha256: str,
     rotations: dict[str, float] | None = None,
+    space_boxes: dict[str, tuple[np.ndarray, np.ndarray]] | None = None,
+    node_map: dict[str, str] | None = None,
 ) -> dict:
     """`positions`: GlobalId -> (min, max) GLB-space bbox in metres. A degenerate box (min == max)
-    is a placement-only point: the interactable gets a position but no bbox."""
+    is a placement-only point: the interactable gets a position but no bbox.
+
+    `space_boxes`: IfcSpace GlobalId -> (min, max) in the GLB frame (metres, Y-up, right-handed, already
+    recentred like the meshes); written as `bbox: [[minX, minY, minZ], [maxX, maxY, maxZ]]`. Spaces
+    without an entry get no bbox (the caller reports them as QA issues).
+    `node_map`: GlobalId -> GLB node name; stairs/ramps become `type: "stair"` portals only when their
+    GLB node exists and is named exactly by the GlobalId (Unity finds stair geometry by node name)."""
     floor_for, elev = _resolver(info, info.storeys)
     by_el = {e.global_id: e for e in info.elements}
     rotations = rotations or {}
@@ -212,8 +221,13 @@ def building_metadata(
         if s.global_id in seen_space:  # keep first; BE rejects duplicates (QA IFC_DUPLICATE_GLOBALID)
             continue
         seen_space.add(s.global_id)
-        spaces.append({"ifcGlobalId": s.global_id, "name": s.name, "longName": s.long_name,
-                       "category": s.category, "storey": floor_for(s.storey_id)})
+        item = {"ifcGlobalId": s.global_id, "name": s.name, "longName": s.long_name,
+                "category": s.category, "storey": floor_for(s.storey_id)}
+        box = (space_boxes or {}).get(s.global_id)
+        if box is not None:
+            lo, hi = (np.asarray(b, dtype=float) for b in box)
+            item["bbox"] = [[_num(v) for v in lo], [_num(v) for v in hi]]
+        spaces.append(item)
     spaces = spaces[:20000]
 
     portals = []
@@ -227,6 +241,16 @@ def building_metadata(
             "isExternal": _bool_or_none(_pset_value(e.psets, "IsExternal")),
             "exitInferred": bool(cand and cand.catalog_key == "door.exit" and cand.source == "inferred"),
         })
+    # Stairs/ramps (same shape as the Unity GeometryWorker): Unity's BuildWorker matches these GlobalIds
+    # against GLB node names to tag stair geometry.
+    nodes = node_map or {}
+    seen_stair: set[str] = set()
+    for e in info.elements:
+        if e.ifc_class not in STAIR_CLASSES or e.global_id in seen_stair or nodes.get(e.global_id) != e.global_id:
+            continue
+        seen_stair.add(e.global_id)
+        portals.append({"ifcGlobalId": e.global_id, "type": "stair", "ifcClass": e.ifc_class,
+                        "floor": floor_for(e.storey_id)})
     portals = portals[:20000]
 
     interactables = []

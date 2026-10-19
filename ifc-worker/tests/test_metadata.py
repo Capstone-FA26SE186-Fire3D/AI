@@ -128,3 +128,24 @@ def test_interactable_id_escapes_dollar(tmp_path: Path):
     it = md["interactables"][0]
     assert it["ifcGlobalId"] == "0eCIdyC_bCfvLYSQc$3LVp"
     assert it["id"] == "ifc:0eCIdyC_bCfvLYSQc-3LVp"
+
+
+def test_building_metadata_space_bbox_and_stair_portals(tmp_path: Path):
+    ids = build_sample_ifc(tmp_path / "s.ifc")
+    _, info = read_model(tmp_path / "s.ifc")
+    boxes = {ids["space_201"]: (np.array([1.0, 3.5, -2.5]), np.array([5.0, 6.2, -0.5]))}
+    md = building_metadata(info, {}, {}, {}, [], "c" * 64, space_boxes=boxes,
+                           node_map={ids["stair_1"]: ids["stair_1"]})
+    jsonschema.validate(md, BLD_SCHEMA)
+    spaces = {s["ifcGlobalId"]: s for s in md["spaces"]}
+    assert spaces[ids["space_201"]]["bbox"] == [[1.0, 3.5, -2.5], [5.0, 6.2, -0.5]]
+    assert "bbox" not in spaces[ids["space_101"]]
+    stairs = [p for p in md["portals"] if p["type"] == "stair"]
+    assert stairs == [{"ifcGlobalId": ids["stair_1"], "type": "stair", "ifcClass": "IfcStair", "floor": "L1"}]
+
+
+def test_stair_without_glb_node_is_not_a_portal(tmp_path: Path):
+    ids = build_sample_ifc(tmp_path / "s.ifc")
+    _, info = read_model(tmp_path / "s.ifc")
+    md = building_metadata(info, {}, {}, {}, [], "c" * 64, node_map={ids["wall_1"]: ids["wall_1"]})
+    assert [p for p in md["portals"] if p["type"] == "stair"] == []
