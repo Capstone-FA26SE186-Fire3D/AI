@@ -50,6 +50,15 @@ thứ hai `UVMap_Lightmap` (không chồng, 0..1) cho mỗi mesh, giữ tên nod
 Khi `BLENDER_PATH` được đặt, chuỗi toolchain có thêm `+blender-x.y`: **phải cập nhật** `ProcessingWorker__AllowedToolchains__0`
 bằng đầu ra mới của `python -m worker.config`.
 
+## Metadata cho Unity
+
+`building_metadata.json` dùng cùng hệ tọa độ với GLB (mét, Y-up, tay phải, đã trừ cùng độ dịch gốc median như mesh; Unity tự lật X).
+
+- `spaces[].bbox = [[minX, minY, minZ], [maxX, maxY, maxZ]]` lấy từ hình học `IfcSpace`. Phòng không có hình học hợp lệ không có `bbox` và được báo `IFC_NO_BODY_GEOMETRY` (Warning); không tạo bbox giả. Unity dùng bbox để dựng vùng phòng và đèn phòng.
+- `portals[]` có thêm `{"type": "stair", "ifcGlobalId", "ifcClass", "floor"}` cho `IfcStair`, `IfcStairFlight`, `IfcRamp`, `IfcRampFlight` có node GLB đặt tên đúng GlobalId; Unity nhận diện cầu thang theo tên node để NPC/người chơi đi giữa các tầng.
+
+Còn khác Unity `Tools/GeometryWorker` (cần xử lý trước khi chuyển production sang worker này): mã tầng (`B1, L1…` so với `L1…Ln`), quy ước `rotationY`/độ cao `y` của cửa trong `interactables`, và `coordinateTransform` chưa có trong `building_metadata.json`.
+
 ## Ngoài phạm vi
 
 - Thay asset theo bbox, NavMesh / lưới hazard, gộp nhiều IFC.
