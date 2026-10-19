@@ -1,0 +1,38 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  rag-api:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rag-api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: rag-api/requirements.txt
+      - run: pip install -r requirements.txt
+      # Test pgvector tự bỏ qua vì FIRE3D_AI_TEST_PG_DSN không được đặt (Docker chỉ chạy khi opt-in FIRE3D_AI_TEST_PG_DOCKER=1).
+      - run: python -m pytest -q
+      - run: python -m evals.run_eval --provider fake --out evals/reports/ci
+
+  ifc-worker:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ifc-worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ifc-worker/requirements.txt
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q

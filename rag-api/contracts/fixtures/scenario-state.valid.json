@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "fet3d.editor/1",
+  "name": "Sơ tán tầng 1",
+  "geometry": { "artifactId": "00000000-0000-0000-0000-000000000000", "sha256Hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+  "runtimeVersion": "1.4.0",
+  "timeLimitSeconds": 600,
+  "randomSeed": 42,
+  "replanIntervalSeconds": 5,
+  "modePolicy": { "allowedModes": ["Learn", "Guided", "Assessment"] },
+  "learningObjectives": ["Thoát hiểm theo lối an toàn gần nhất"],
+  "learnerInstructions": "Rời khỏi tòa nhà qua cửa thoát hiểm, tránh khu vực có lửa.",
+  "rubric": {
+    "schema_version": "1",
+    "pass_threshold": 0.7,
+    "criteria": [
+      { "id": "reached-exit", "metric": "reached_exit", "mandatory": true, "weight": 1, "operator": "eq", "threshold": 1, "description": "Đến được lối thoát." }
+    ]
+  },
+  "objects": [
+    { "id": "spawn-1", "kind": "Spawn", "label": "Phòng 101", "placement": { "floorId": "L1", "position": { "x": 2, "y": 0, "z": 3 }, "rotation": { "x": 0, "y": 0.7071068, "z": 0, "w": 0.7071068 } } },
+    { "id": "goal-exit", "kind": "Goal", "anchorId": "1hOSvn6df7F8_7GcBWlRGQ", "placement": { "floorId": "L1", "position": { "x": 12.5, "y": 0, "z": 1 }, "rotation": { "x": 0, "y": 0, "z": 0, "w": 1 } } },
+    { "id": "fire-1", "kind": "Hazard", "capability": { "id": "fire.source", "version": "1.0.0" }, "parameters": { "intensity": 6.5, "activationSeconds": 30 }, "placement": { "floorId": "L1", "position": { "x": 6, "y": 0, "z": 4 }, "rotation": { "x": 0, "y": 0, "z": 0, "w": 1 } } },
+    { "id": "npc-1", "kind": "Npc", "capability": { "id": "npc.evacuee", "version": "2.1.0" }, "parameters": { "behaviour": "panic", "mobilityImpaired": false }, "placement": { "floorId": "L2", "position": { "x": 1, "y": 0, "z": 1 }, "rotation": { "x": 0, "y": 0, "z": 0, "w": 1 } } },
+    { "id": "blocked-door", "kind": "BlockedElement", "anchorId": "1hOSvn6df7F8_7GcBWlRGR", "placement": { "floorId": "L1", "position": { "x": 8, "y": 0, "z": 1 }, "rotation": { "x": 0, "y": 0, "z": 0, "w": 1 } } },
+    { "id": "ext-1", "kind": "Equipment", "capability": { "id": "equipment.extinguisher", "version": "1.0.0" }, "parameters": { "agent": "CO2" }, "placement": { "floorId": "L1", "position": { "x": 4, "y": 1.2, "z": 0.2 }, "rotation": { "x": 0, "y": 0, "z": 0, "w": 1 } } }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fet3d.io.vn/contracts/editor/v1/geometry-metadata.schema.json",
+  "title": "Geometry preview metadata (fet3d.editor/1)",
+  "description": "Metadata of the preview_glb artifact of an accepted Geometry job. Matrices are 16 finite numbers, column-major, applied to column vectors; row 4 must be 0,0,0,1. GLB space is metres, Y-up, right-handed. coordinateTransform maps IFC model coordinates to GLB and includes unit scale and origin. Each floor transform maps floor-local metres to GLB.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "units", "upAxis", "handedness", "coordinateTransform", "floors", "semanticMapping"],
+  "properties": {
+    "schemaVersion": { "const": "fet3d.editor/1" },
+    "units": { "const": "m" },
+    "upAxis": { "const": "Y" },
+    "handedness": { "const": "right" },
+    "coordinateTransform": { "$ref": "#/$defs/matrix" },
+    "floors": {
+      "type": "array", "minItems": 1, "maxItems": 500,
+      "description": "Floor IDs are unique within the revision; IFC GlobalIds are unique when present.",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "name", "elevationMeters", "transform"],
+        "properties": {
+          "id": { "$ref": "#/$defs/id" },
+          "name": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "elevationMeters": { "type": "number", "minimum": -10000, "maximum": 10000 },
+          "ifcGlobalId": { "$ref": "#/$defs/ifcGlobalId" },
+          "transform": { "$ref": "#/$defs/matrix" }
+        }
+      }
+    },
+    "semanticMapping": {
+      "type": "array", "maxItems": 100000,
+      "description": "One IFC element to one GLB node; ifcGlobalId and nodeId are each unique; floorId references floors[].id.",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["ifcGlobalId", "nodeId", "floorId", "semanticType"],
+        "properties": {
+          "ifcGlobalId": { "$ref": "#/$defs/ifcGlobalId" },
+          "nodeId": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "floorId": { "$ref": "#/$defs/id" },
+          "semanticType": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,99}$" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$" },
+    "ifcGlobalId": { "type": "string", "pattern": "^[0-9A-Za-z_$]{22}$" },
+    "matrix": { "type": "array", "minItems": 16, "maxItems": 16, "items": { "type": "number" }, "description": "Affine, invertible, column-major 4x4." }
+  }
+}

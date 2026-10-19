@@ -19,6 +19,7 @@ Nguồn chuẩn: [v7 contract](../../Docs/schema_v7_contract.md) và [requiremen
 - [Điểm vào](../rag-api/app/main.py): `GET /health`, `POST /documents` (txt/md/pdf), `POST /chat`; chunking, loaders, store và client nằm trong `rag-api/app/rag/`.
 - [Cấu hình](../rag-api/app/core/config.py) đọc môi trường và .env; không sao chép giá trị bí mật vào ghi chú. Requirements ở [requirements.txt](../rag-api/requirements.txt).
 - Web và Mobile hiện gọi RAG API trực tiếp trong prototype. Kiến trúc đích dùng OneShield/OnePortal (iNET) → Nginx trước .NET API; production client không đi thẳng tới FastAPI. Khi đổi hợp đồng upload/chat, kiểm tra tác động tới hai client.
+- Cập nhật v2: đã có route adapter v2 (`app/v2`, `/v2/...`), request store + recovery (`app/requests`), `PgVectorIndex` và `MemoryIndex` (`app/index`), provider adapter OpenAI/Gemini/fake (`app/llm`), pipeline trả lời + safety gate (`app/answering`), eval offline (`rag-api/evals`) và CI (`.github/workflows/ci.yml`). Route legacy (`/documents`, `/chat`, `/pccc/*`) tắt mặc định (`LEGACY_ROUTES_ENABLED`). Chưa nghiệm thu E2E với BE thật; không dùng Docker (xem `docs/deploy-azure.md`).
 
 ## Kiến trúc đích đã thống nhất — 2026-09-17
 

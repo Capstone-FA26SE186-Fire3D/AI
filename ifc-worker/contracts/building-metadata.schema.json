@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fet3d.io.vn/contracts/ifc/v1/building-metadata.schema.json",
+  "title": "Building metadata (fet3d.building/1)",
+  "description": "metadata of the Geometry job output with artifactType building_metadata, sent beside preview_glb in the same attempt (Docs ifc_ingestion_visual_interaction.md 5.7). The backend validates interactables field by field and serves them as equipment candidates (IFC-04); other sections only need their container shape. An interactable's ifcGlobalId should also appear in preview_glb semanticMapping so the editor can use it as anchorId.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion"],
+  "properties": {
+    "schemaVersion": { "const": "fet3d.building/1" },
+    "revisionId": { "type": "string", "format": "uuid" },
+    "sources": {
+      "description": "Provenance of each IFC file: role (architecture, mep, plumbing, fire), sha256, IFC schema, exporting application.",
+      "type": "array", "maxItems": 20, "items": { "type": "object" }
+    },
+    "units": { "type": "string" },
+    "storeys": { "type": "array", "maxItems": 500, "items": { "type": "object" } },
+    "spaces": {
+      "description": "IfcSpace data: ifcGlobalId, name, longName (Revit puts the room name here), category, storey, bbox.",
+      "type": "array", "maxItems": 20000, "items": { "type": "object" }
+    },
+    "portals": { "type": "array", "maxItems": 20000, "items": { "type": "object" } },
+    "interactables": {
+      "type": "array", "maxItems": 5000,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "ifcGlobalId", "catalogKey", "source", "confidence", "position"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$", "description": "Stable candidate id, unique in the artifact, e.g. ifc:<GlobalId>." },
+          "ifcGlobalId": { "type": "string", "pattern": "^[0-9A-Za-z_$]{22}$" },
+          "catalogKey": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,99}$", "description": "Capability id of the interaction catalog, e.g. extinguisher.portable, water.sink." },
+          "source": { "enum": ["ifc", "inferred"], "description": "ifc: found as an element; inferred: derived (for example an exit door on an outer wall)." },
+          "ifcClass": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1, "description": "Below 0.9 the candidate is listed as needing confirmation." },
+          "confirmedBy": { "description": "Reserved; confirmations are stored by the backend, never in the artifact." },
+          "floorId": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Floor id of preview_glb metadata." },
+          "position": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number" }, "description": "[x, y, z] metres in the floor frame." },
+          "rotationY": { "type": "number", "description": "Degrees around the up axis." },
+          "bbox": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number", "exclusiveMinimum": 0 }, "description": "[width, depth, height] metres." }
+        }
+      }
+    },
+    "materials": { "type": "object" },
+    "qaIssues": { "type": "array", "maxItems": 5000, "items": { "type": "object" } }
+  }
+}
