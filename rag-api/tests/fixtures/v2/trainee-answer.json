@@ -1,0 +1,48 @@
+{
+  "request_id": "8e0d2a1f-4c63-4bae-9a22-1b2c3d4e5f62",
+  "audience": "trainee",
+  "operation": "TraineeAnswer",
+  "response_type": "KnowledgeAnswer",
+  "organization_id": null,
+  "input": {
+    "text": "Khi nghe chuông báo cháy tôi cần làm gì trước tiên?"
+  },
+  "input_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "sources": [
+    {
+      "kind": "LearnPost",
+      "document_id": "c1000000-0000-4000-8000-000000000011",
+      "document_version": "c2000000-0000-4000-8000-000000000012",
+      "title": "Thoát nạn cơ bản",
+      "version_label": "v3",
+      "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "source_uri": null,
+      "content": {
+        "title": "Thoát nạn cơ bản",
+        "summary": "Các bước thoát nạn",
+        "contentKind": "Article",
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "Giữ bình tĩnh và đi theo lối thoát gần nhất."
+          }
+        ]
+      },
+      "content_omitted": false
+    }
+  ],
+  "learn_context": {
+    "post_id": "c1000000-0000-4000-8000-000000000011",
+    "version_id": "c2000000-0000-4000-8000-000000000012"
+  },
+  "context": {
+    "kind": "Learn",
+    "postId": "c1000000-0000-4000-8000-000000000011",
+    "versionId": "c2000000-0000-4000-8000-000000000012"
+  },
+  "limits": {
+    "quota_unit": "tokens",
+    "max_units": 2000
+  },
+  "attempt": 1
+}

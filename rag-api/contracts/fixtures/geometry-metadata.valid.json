@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "fet3d.editor/1",
+  "units": "m",
+  "upAxis": "Y",
+  "handedness": "right",
+  "coordinateTransform": [0.001, 0, 0, 0, 0, 0, -0.001, 0, 0, 0.001, 0, 0, -10, 0, 5, 1],
+  "floors": [
+    { "id": "L1", "name": "Tầng 1", "elevationMeters": 0, "ifcGlobalId": "0BTBFw6f90Nfh9rP1dlXrb", "transform": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] },
+    { "id": "L2", "name": "Tầng 2", "elevationMeters": 3.5, "ifcGlobalId": "0BTBFw6f90Nfh9rP1dlXrc", "transform": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 3.5, 0, 1] }
+  ],
+  "semanticMapping": [
+    { "ifcGlobalId": "1hOSvn6df7F8_7GcBWlRGQ", "nodeId": "door_101", "floorId": "L1", "semanticType": "IfcDoor" },
+    { "ifcGlobalId": "1hOSvn6df7F8_7GcBWlRGR", "nodeId": "door_102", "floorId": "L1", "semanticType": "IfcDoor" },
+    { "ifcGlobalId": "2O2Fr$t4X7Zf8NOew3FLOH", "nodeId": "stair_1", "floorId": "L1", "semanticType": "IfcStair" },
+    { "ifcGlobalId": "3cUkl32yn9qRSPvBJVyWYp", "nodeId": "space_201", "floorId": "L2", "semanticType": "IfcSpace" }
+  ]
+}

@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fet3d.io.vn/contracts/editor/v1/scenario-state.schema.json",
+  "title": "Scenario draft state (fet3d.editor/1)",
+  "description": "PUT /api/scenario-drafts/{id} body. PUT enforces this shape (unknown fields, types, finite numbers, duplicate IDs) but allows partial drafts; validate and snapshot additionally require the fields described as required for snapshot, check revision references (pinned Geometry artifact, floors, anchors and anchor floor) and validate parameters against the runtime capability contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion"],
+  "properties": {
+    "schemaVersion": { "const": "fet3d.editor/1" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 255 },
+    "geometry": {
+      "description": "Required for snapshot. Pins the current accepted preview_glb artifact of the draft revision.",
+      "type": "object", "additionalProperties": false, "required": ["artifactId", "sha256Hash"],
+      "properties": {
+        "artifactId": { "type": "string", "format": "uuid" },
+        "sha256Hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "runtimeVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$", "description": "Required for snapshot." },
+    "timeLimitSeconds": { "type": "integer", "minimum": 1, "maximum": 86400, "description": "Required for snapshot." },
+    "randomSeed": { "type": "integer" },
+    "replanIntervalSeconds": { "type": "integer", "minimum": 0, "maximum": 3600 },
+    "modePolicy": {
+      "type": "object", "additionalProperties": false, "required": ["allowedModes"],
+      "properties": { "allowedModes": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["Learn", "Guided", "Assessment"] } } }
+    },
+    "learningObjectives": { "type": "array", "maxItems": 50, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 1000 }, "description": "Required and nonempty for snapshot." },
+    "learnerInstructions": { "type": "string", "minLength": 1, "maxLength": 10000, "description": "Required for snapshot." },
+    "libraryRefs": {
+      "description": "Optional provenance: Library versions the author copied from. Never changes runtime behaviour.",
+      "type": "array", "maxItems": 50,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["versionId", "kind"],
+        "properties": {
+          "versionId": { "type": "string", "format": "uuid" },
+          "kind": { "enum": ["ScenarioTemplate", "RubricSample", "Equipment"] },
+          "code": { "type": "string", "minLength": 1, "maxLength": 80 }
+        }
+      }
+    },
+    "rubric": {
+      "description": "Required for snapshot.",
+      "type": "object", "additionalProperties": false, "required": ["schema_version", "pass_threshold", "criteria"],
+      "properties": {
+        "schema_version": { "const": "1", "description": "Rubric contract version; see GET /api/scenario-rubrics/catalog." },
+        "pass_threshold": { "type": "number" },
+        "criteria": {
+          "type": "array", "maxItems": 100,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["id", "metric", "mandatory", "weight", "threshold", "operator"],
+            "properties": {
+              "id": { "$ref": "#/$defs/id" },
+              "metric": { "$ref": "#/$defs/id" },
+              "mandatory": { "type": "boolean" },
+              "weight": { "type": "number", "minimum": 0 },
+              "threshold": { "type": "number" },
+              "operator": { "enum": ["gte", "lte", "eq"] },
+              "label": { "type": "string", "minLength": 1, "maxLength": 200, "description": "Short criterion name shown to learners with the result." },
+              "description": { "type": "string", "minLength": 1, "maxLength": 1000 }
+            }
+          }
+        }
+      }
+    },
+    "objects": {
+      "description": "Required for snapshot with at least one Spawn and one Goal. Object IDs are unique. Hazard, Npc and Equipment require a capability; BlockedElement requires anchorId.",
+      "type": "array", "maxItems": 2000,
+      "items": { "$ref": "#/$defs/object" }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$" },
+    "object": {
+      "type": "object", "additionalProperties": false, "required": ["id", "kind", "placement"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "enum": ["Spawn", "Hazard", "Goal", "Npc", "BlockedElement", "Equipment"] },
+        "label": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "placement": {
+          "type": "object", "additionalProperties": false, "required": ["floorId", "position", "rotation"],
+          "properties": {
+            "floorId": { "$ref": "#/$defs/id" },
+            "position": {
+              "description": "Floor-local metres; world = floor.transform * position.",
+              "type": "object", "additionalProperties": false, "required": ["x", "y", "z"],
+              "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "z": { "type": "number" } }
+            },
+            "rotation": {
+              "description": "Unit quaternion (|q| = 1 +/- 0.001) in GLB axes.",
+              "type": "object", "additionalProperties": false, "required": ["x", "y", "z", "w"],
+              "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "z": { "type": "number" }, "w": { "type": "number" } }
+            }
+          }
+        },
+        "anchorId": { "type": "string", "pattern": "^[0-9A-Za-z_$]{22}$", "description": "IFC GlobalId present in the pinned semanticMapping on the same floor." },
+        "capability": {
+          "type": "object", "additionalProperties": false, "required": ["id", "version"],
+          "properties": { "id": { "$ref": "#/$defs/id" }, "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" } }
+        },
+        "parameters": { "type": "object", "description": "Validated against the capability contract parameter schema; must be empty without a capability." }
+      }
+    }
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "request_id": "7d9c1f0e-3b52-4a9e-8f11-0a1b2c3d4e51",
+  "audience": "organization",
+  "operation": "Answer",
+  "response_type": "KnowledgeAnswer",
+  "organization_id": "11111111-2222-4333-8444-555555555555",
+  "input": {
+    "text": "Khoảng cách tối đa tới lối thoát nạn đối với nhà văn phòng là bao nhiêu?"
+  },
+  "input_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "sources": [
+    {
+      "kind": "KnowledgeSource",
+      "document_id": "a1b2c3d4-0000-4000-8000-000000000001",
+      "document_version": "b1b2c3d4-0000-4000-8000-000000000002",
+      "title": "QCVN 06:2022/BXD",
+      "version_label": "v1",
+      "content_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "source_uri": "https://example.com/qcvn06.pdf",
+      "content": null,
+      "content_omitted": false
+    }
+  ],
+  "limits": {
+    "quota_unit": "tokens",
+    "max_units": 2000
+  },
+  "attempt": 1
+}

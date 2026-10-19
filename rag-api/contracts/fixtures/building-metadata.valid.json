@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "fet3d.building/1",
+  "sources": [{ "role": "architecture", "sha256": "6f1ed002ab5595859014ebf0951522d9a3c3ac4c8f8a4c3a7c3e9b3c2b6c8f11", "schema": "IFC4", "app": "Autodesk Revit 2021" }],
+  "units": "m",
+  "spaces": [{ "ifcGlobalId": "3cUkl32yn9qRSPvBJVyWYp", "name": "201", "longName": "Corridor", "category": "corridor", "storey": "L2" }],
+  "portals": [{ "ifcGlobalId": "1hOSvn6df7F8_7GcBWlRGQ", "type": "door", "fireExit": null }],
+  "interactables": [
+    { "id": "ifc:2X8kQ1n4j0Hh8Fv5tW3pEx", "ifcGlobalId": "2X8kQ1n4j0Hh8Fv5tW3pEx", "catalogKey": "equipment.extinguisher", "source": "ifc", "ifcClass": "IfcFlowTerminal",
+      "confidence": 0.95, "floorId": "L1", "position": [12.3, 0.9, 4.5], "rotationY": 90, "bbox": [0.2, 0.2, 0.6] },
+    { "id": "ifc:0Lm2Pq7rS9tUvWxYz1A2B3", "ifcGlobalId": "0Lm2Pq7rS9tUvWxYz1A2B3", "catalogKey": "water.sink", "source": "ifc", "ifcClass": "IfcFurnishingElement",
+      "confidence": 0.6, "floorId": "L1", "position": [3.1, 0.85, 7.2], "bbox": [0.48, 0.36, 0.2] }
+  ],
+  "materials": { "FET3D_FloorTile": { "libraryKey": "floor.tile", "ifcNames": ["Bodenbelag Fliesen 50 x 50"] } },
+  "qaIssues": []
+}
