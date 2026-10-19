@@ -17,7 +17,7 @@ from worker.pipeline.report import GeometryReport
 
 __all__ = [
     "ElementMesh", "GeometryReport", "COORDINATE_TRANSFORM", "ifc_to_glb_point", "extract_meshes",
-    "is_runtime_excluded", "placement_of", "UNASSIGNED", "group_of", "recentre_offset",
+    "is_runtime_excluded", "placement_of", "UNASSIGNED", "group_of", "recentre_offset", "extract_space_boxes",
 ]
 
 log = logging.getLogger("ifc-worker")
@@ -197,3 +197,49 @@ def extract_meshes(
     ordered = [meshes[g] for g in wanted if g in meshes]
     log.info("extracted %d meshes, %d missing body", len(ordered), len(report.missing_body))
     return ordered, report
+
+
+def extract_space_boxes(
+    model: ifcopenshell.file, info: IfcModelInfo
+) -> tuple[dict[str, tuple[np.ndarray, np.ndarray]], list[tuple[str, str]]]:
+    """Axis-aligned boxes of IfcSpace volumes in GLB space (metres, Y-up, right-handed, before recentring),
+    built with the same settings and axis swap as the element meshes.
+
+    Returns ({global_id: (min, max)}, missing) where `missing` lists (global_id, "IfcSpace") for spaces
+    without usable geometry; those get no box (never a fabricated one)."""
+    wanted: dict[str, object] = {}
+    missing: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for sp in info.spaces:
+        if sp.global_id in seen:
+            continue
+        seen.add(sp.global_id)
+        try:
+            ent = model.by_guid(sp.global_id)
+        except RuntimeError:
+            ent = None
+        if ent is None or ent.Representation is None:
+            missing.append((sp.global_id, "IfcSpace"))
+            continue
+        wanted[sp.global_id] = ent
+
+    boxes: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    if wanted:
+        it = ifcopenshell.geom.iterator(
+            _settings(_body_contexts(model)), model, multiprocessing.cpu_count(), include=list(wanted.values()),
+        )
+        if it.initialize():
+            while True:
+                shape = it.get()
+                gid = shape.guid
+                if gid in wanted and gid not in boxes:
+                    verts = np.asarray(shape.geometry.verts, dtype=float).reshape(-1, 3)
+                    if len(verts) and len(shape.geometry.faces) and np.all(np.isfinite(verts)):
+                        glb = np.column_stack((verts[:, 0], verts[:, 2], -verts[:, 1]))
+                        lo, hi = glb.min(axis=0), glb.max(axis=0)
+                        if np.all(hi - lo > 1e-9):  # a flat or point "volume" is not a usable room box
+                            boxes[gid] = (lo, hi)
+                if not it.next():
+                    break
+    missing.extend((g, "IfcSpace") for g in wanted if g not in boxes)
+    return boxes, missing

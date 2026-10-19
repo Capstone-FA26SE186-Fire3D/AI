@@ -34,6 +34,7 @@ def build_sample_ifc(
     with_exit_door: bool = True,
     with_extinguisher: bool = True,
     with_storeys: bool = True,
+    with_stair_parts: bool = False,
 ) -> dict[str, str]:
     run = ifcopenshell.api.run
     f = ifcopenshell.api.run("project.create_file", version="IFC4")
@@ -106,6 +107,9 @@ def build_sample_ifc(
             if storeys:
                 run("aggregate.assign_object", f, products=[sp], relating_object=storeys[sk])
                 _at(sp, sk, 0.0, 0.0)
+            if key == "space_201":
+                # Room volume 4.0 x 2.0 x 2.7 m at local (1.0, 0.5, 0.0) m on L2; space_101 has no geometry.
+                place(sp, _box(f, body, 1000.0, 500.0, 0.0, 4000.0, 2000.0, 2700.0))
             ids[key] = sp.GlobalId
 
     if with_extinguisher:
@@ -123,6 +127,23 @@ def build_sample_ifc(
     place(stair, _box(f, body, 0, 0, 0, 1200.0, 3000.0, 3000.0))
     contain(stair, "L1", 6000.0, 1000.0)
     ids["stair_1"] = stair.GlobalId
+
+    if with_stair_parts:
+        # Stair flight aggregated to the stair, ramp + ramp flight on L2.
+        flight = run("root.create_entity", f, ifc_class="IfcStairFlight", name="Flight 1")
+        place(flight, _box(f, body, 0, 0, 0, 1200.0, 1500.0, 1500.0))
+        flight.ObjectPlacement = _local(f, stair.ObjectPlacement, 0.0, 0.0, 0.0)
+        run("aggregate.assign_object", f, products=[flight], relating_object=stair)
+        ids["stair_flight_1"] = flight.GlobalId
+        ramp = run("root.create_entity", f, ifc_class="IfcRamp", name="Ramp")
+        place(ramp, _box(f, body, 0, 0, 0, 1500.0, 4000.0, 400.0))
+        contain(ramp, "L2" if storeys else "L1", 8000.0, 0.0)
+        ids["ramp_1"] = ramp.GlobalId
+        rflight = run("root.create_entity", f, ifc_class="IfcRampFlight", name="Ramp Flight")
+        place(rflight, _box(f, body, 0, 0, 0, 1500.0, 2000.0, 200.0))
+        rflight.ObjectPlacement = _local(f, ramp.ObjectPlacement, 0.0, 0.0, 0.0)
+        run("aggregate.assign_object", f, products=[rflight], relating_object=ramp)
+        ids["ramp_flight_1"] = rflight.GlobalId
 
     slab = run("root.create_entity", f, ifc_class="IfcSlab", name="Floor L2", predefined_type="FLOOR")
     place(slab, _box(f, body, 0, 0, 0, 5000.0, 3000.0, 200.0))

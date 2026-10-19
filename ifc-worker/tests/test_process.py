@@ -241,3 +241,65 @@ def test_duplicate_global_ids_deduped_with_warning(tmp_path: Path):
     assert len(sem) == len(set(sem)) and ids["L1"] in sem and ids["space_101"] in sem
     jsonschema.validate(glb.metadata, GEO_SCHEMA)
     jsonschema.validate(bld.metadata, BLD_SCHEMA)
+
+
+def _glb_node_bounds(data: bytes) -> dict[str, tuple[list[float], list[float]]]:
+    """GLB node name -> POSITION accessor (min, max) of its mesh (storey group nodes are identity)."""
+    doc = glb_json(data)
+    out = {}
+    for node in doc["nodes"]:
+        if "mesh" not in node or "name" not in node:
+            continue
+        accs = [doc["accessors"][p["attributes"]["POSITION"]] for p in doc["meshes"][node["mesh"]]["primitives"]]
+        out[node["name"]] = (np.min([a["min"] for a in accs], axis=0).tolist(),
+                             np.max([a["max"] for a in accs], axis=0).tolist())
+    return out
+
+
+def test_space_bbox_in_glb_frame_with_recentring(tmp_path: Path):
+    ids, (glb, bld) = _run(tmp_path, with_stair_parts=True)
+    ct = glb.metadata["coordinateTransform"]
+    shift = np.array([ct[12], ct[13], ct[14]])  # GLB = swap(ifc * s) + shift
+    assert np.any(shift != 0), "fixture should be recentred so the test proves the shift is applied"
+    # Same frame as the GLB meshes: the L2 slab (IFC x 0..5, y 0..3, z 3.5..3.7 m) lands where the shift says.
+    nodes = _glb_node_bounds(glb.path.read_bytes())
+    lo, hi = nodes[ids["slab_l2"]]
+    assert lo == pytest.approx(list(np.array([0.0, 3.5, -3.0]) + shift), abs=1e-4)
+    assert hi == pytest.approx(list(np.array([5.0, 3.7, 0.0]) + shift), abs=1e-4)
+    # Space 201 on L2: IFC x 1..5, y 0.5..2.5, z 3.5..6.2 m -> GLB x 1..5, y 3.5..6.2, z -2.5..-0.5, plus shift.
+    spaces = {s["ifcGlobalId"]: s for s in bld.metadata["spaces"]}
+    sp = spaces[ids["space_201"]]
+    assert sp["storey"] == "L2"
+    assert sp["bbox"][0] == pytest.approx(list(np.array([1.0, 3.5, -2.5]) + shift), abs=1e-6)
+    assert sp["bbox"][1] == pytest.approx(list(np.array([5.0, 6.2, -0.5]) + shift), abs=1e-6)
+    size = np.array(sp["bbox"][1]) - np.array(sp["bbox"][0])
+    assert size == pytest.approx([4.0, 2.7, 2.0], abs=1e-6)  # width x, height y, depth z
+
+
+def test_space_without_geometry_has_no_bbox_and_qa_issue(tmp_path: Path):
+    ids, (glb, bld) = _run(tmp_path)
+    spaces = {s["ifcGlobalId"]: s for s in bld.metadata["spaces"]}
+    assert "bbox" not in spaces[ids["space_101"]]
+    no_body = [i for i in glb.issues if i["code"] == "IFC_NO_BODY_GEOMETRY"]
+    assert any(i["severity"] == "Warning" and ids["space_101"] in i.get("ifcGlobalIds", []) for i in no_body)
+    assert all(ids["space_201"] not in i.get("ifcGlobalIds", []) for i in no_body)
+    assert any(q["code"] == "IFC_NO_BODY_GEOMETRY" and ids["space_101"] in q["elements"]
+               for q in bld.metadata["qaIssues"])
+    assert bld.outcome == "Passed"  # a space without volume is a warning, not a failure
+
+
+def test_stair_portals_match_glb_node_names(tmp_path: Path):
+    ids, (glb, bld) = _run(tmp_path, with_stair_parts=True)
+    node_names = {n.get("name") for n in glb_json(glb.path.read_bytes())["nodes"]}
+    stairs = [p for p in bld.metadata["portals"] if p["type"] == "stair"]
+    by = {p["ifcGlobalId"]: p for p in stairs}
+    assert len(by) == len(stairs)
+    assert set(by) == {ids["stair_1"], ids["stair_flight_1"], ids["ramp_1"], ids["ramp_flight_1"]}
+    assert set(by) <= node_names
+    assert by[ids["stair_1"]] == {"ifcGlobalId": ids["stair_1"], "type": "stair", "ifcClass": "IfcStair", "floor": "L1"}
+    assert by[ids["stair_flight_1"]]["ifcClass"] == "IfcStairFlight" and by[ids["stair_flight_1"]]["floor"] == "L1"
+    assert by[ids["ramp_1"]]["ifcClass"] == "IfcRamp" and by[ids["ramp_1"]]["floor"] == "L2"
+    assert by[ids["ramp_flight_1"]]["ifcClass"] == "IfcRampFlight" and by[ids["ramp_flight_1"]]["floor"] == "L2"
+    sem = {s["ifcGlobalId"]: s["nodeId"] for s in glb.metadata["semanticMapping"]}
+    assert all(sem[g] == g for g in by)
+    jsonschema.validate(bld.metadata, BLD_SCHEMA)
