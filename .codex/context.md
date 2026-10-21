@@ -15,16 +15,16 @@ Nguồn chuẩn: [v7 contract](../../Docs/schema_v7_contract.md) và [requiremen
 
 ## Hiện trạng đã kiểm tra
 
-- Code ở [rag-api](../rag-api/README.md): Python, FastAPI, ChromaDB, OpenAI SDK; đây là trạng thái prototype hiện có, không phải storage/provider production đã chốt.
-- [Điểm vào](../rag-api/app/main.py): `GET /health`, `POST /documents` (txt/md/pdf), `POST /chat`; chunking, loaders, store và client nằm trong `rag-api/app/rag/`.
-- [Cấu hình](../rag-api/app/core/config.py) đọc môi trường và .env; không sao chép giá trị bí mật vào ghi chú. Requirements ở [requirements.txt](../rag-api/requirements.txt).
-- Web và Mobile hiện gọi RAG API trực tiếp trong prototype. Kiến trúc đích dùng OneShield/OnePortal (iNET) → Nginx trước .NET API; production client không đi thẳng tới FastAPI. Khi đổi hợp đồng upload/chat, kiểm tra tác động tới hai client.
-- Cập nhật v2: đã có route adapter v2 (`app/v2`, `/v2/...`), request store + recovery (`app/requests`), `PgVectorIndex` và `MemoryIndex` (`app/index`), provider adapter OpenAI/Gemini/fake (`app/llm`), pipeline trả lời + safety gate (`app/answering`), eval offline (`rag-api/evals`) và CI (`.github/workflows/ci.yml`). Route legacy (`/documents`, `/chat`, `/pccc/*`) tắt mặc định (`LEGACY_ROUTES_ENABLED`). Chưa nghiệm thu E2E với BE thật; không dùng Docker (xem `docs/deploy-azure.md`).
+- Source hiện hành trên `main` gồm RAG v2 trong `rag-api/app/v2`, request store/recovery (`app/requests`), `PgVectorIndex`/`MemoryIndex` (`app/index`), OpenAI/Gemini/fake adapters (`app/llm`), safety gate (`app/answering`), eval offline và CI. Xem [README](../README.md), [hướng dẫn AI](../docs/huong-dan-ai.md).
+- ChromaDB cùng `/documents`, `/chat`, `/pccc/*` thuộc legacy; legacy routes tắt mặc định bằng `LEGACY_ROUTES_ENABLED`. Có adapter pgvector trong source chưa đồng nghĩa đã migrate dữ liệu hoặc nghiệm thu PostgreSQL/provider production.
+- [IFC worker](../ifc-worker/README.md) đã có source extraction, classification, geometry/metadata, Blender, QA và gate client; worker đăng ký output qua BE với lease/attempt, không ghi quyền nghiệp vụ trực tiếp.
+- [Triển khai Azure](../docs/deploy-azure.md) hiện hướng dẫn Azure App Service code deploy. Container Apps trong các đoạn kiến trúc đích là phương án trước đó; không coi đó là hạ tầng đã tạo. Chưa dùng ghi chú để suy ra E2E với BE/provider thật đã đạt.
+- FE giữ direct RAG client cho demo phát triển; các luồng AI nghiệp vụ gọi .NET để kiểm quyền/quota. Khi sửa hợp đồng, đối chiếu client hiện hành thay vì giả định mọi màn hình còn gọi FastAPI trực tiếp.
 
 ## Kiến trúc đích đã thống nhất — 2026-09-17
 
 - AI/RAG và IFC processing dùng Python + FastAPI; IFC extraction dùng IfcOpenShell khi phù hợp.
-- Vector store production là `pgvector` trong Supabase PostgreSQL. ChromaDB chỉ còn là implementation prototype cần migration có kế hoạch; không thêm dữ liệu production mới dựa trên ChromaDB.
+- Vector store production là `pgvector` trong Supabase PostgreSQL. ChromaDB thuộc legacy; RAG v2 đã có adapter pgvector, còn migration dữ liệu phải có kế hoạch; không thêm dữ liệu production mới dựa trên ChromaDB.
 - LLM sẽ chọn một trong OpenAI API hoặc Google Gemini API (khóa/cấu hình qua Google AI Studio). Giữ provider adapter, output schema, safety gate và evaluation dùng chung; chưa được mô tả cả hai là production provider.
 - RAG data access phải tenant-scoped trên cả metadata filter và vector query. Không đưa Supabase service-role key hoặc LLM key vào FE/Mobile; không gửi raw IFC hay dữ liệu thừa sang LLM.
 - Raw IFC/package dùng AWS S3 theo signed URL do backend cấp. Supabase Auth không nằm trong stack; BE quản lý email/password và FET3D session, Firebase chỉ xác minh Google Sign-In, còn quyền nghiệp vụ do BE/PostgreSQL quyết định.
@@ -32,11 +32,11 @@ Nguồn chuẩn: [v7 contract](../../Docs/schema_v7_contract.md) và [requiremen
 - Artifact/facts phải immutable theo revision, giữ units/coordinate system/GlobalId, checksum và S3 key. Thiếu semantic hoặc connectivity tạo issue để OrganizationUser sửa/xác nhận; thay IFC tạo revision mới, còn thay scenario dùng lại geometry tương thích.
 - RAG có hai audience: `organization` (giải thích BIM/PCCC, gợi ý scenario draft có nguồn) và `trainee` (hỏi đáp kiến thức, Learn, debrief cá nhân). AI chỉ trả draft/evidence; không tự sửa editor, publish, route hoặc scoring. Kho common và organization phải tenant/scope-filter riêng.
 - Output phải phân biệt `KnowledgeAnswer` (câu trả lời kiến thức cho OrganizationUser/Trainee, citation nguồn chung bắt buộc) và `ScenarioDraft` (chỉ khi OrganizationUser yêu cầu tạo cấu hình scenario, trạng thái `NeedsUserEdit`). `InsufficientEvidence` và `RejectedBySafetyGate` là trạng thái riêng; `NeedsUserEdit` không áp dụng cho KnowledgeAnswer. BIM anchor chỉ bắt buộc khi output dùng BIM facts. Kiểm tra chuyên môn nếu cần là policy/assignment, không tạo thêm system role.
-- AI/RAG là service Python/FastAPI triển khai riêng trên Azure; Container Apps là phương án triển khai đề xuất, chưa phải SKU/hạ tầng đã tạo. Production client gọi `.NET API`; BE gửi request/idempotency ID, canonical input hash, audience, allowed scope và source/revision version rồi gọi AI nội bộ. AI trả `request_id`, response status/type, citations/source version, BIM anchors khi có, model/version và usage kỹ thuật; AI không quyết định giá/quota và không sở hữu billing.
+- AI/RAG là service Python/FastAPI triển khai riêng trên Azure; Tài liệu AI hiện hướng dẫn App Service code deploy, chưa phải bằng chứng hạ tầng đã nghiệm thu. Production client gọi `.NET API`; BE gửi request/idempotency ID, canonical input hash, audience, allowed scope và source/revision version rồi gọi AI nội bộ. AI trả `request_id`, response status/type, citations/source version, BIM anchors khi có, model/version và usage kỹ thuật; AI không quyết định giá/quota và không sở hữu billing.
 - OneShield/OnePortal (iNET) là lớp edge phía trước Nginx trong kiến trúc đích; AI service chỉ nhận request nội bộ từ backend sau khi backend kiểm tra identity, tenant, scope và quota. Nginx vẫn là reverse proxy trước .NET API; edge không thay thế authorization.
 - Timeout phải tra cứu `GET /api/ai/requests/{requestId}` trước retry; cùng idempotency key/cùng input trả kết quả cũ, khác input bị từ chối. ChromaDB/OpenAI vẫn là prototype; production dùng pgvector và một provider LLM sau evaluation.
 - IFC processing và playtest orchestration phải trả logical job/attempt/lease/toolchain/artifact/hash/QA provenance. Artifact/validation pin attempt hiện hành; kết quả hết lease không được ghi đè. Organization playtest dùng draft/version package đã verify; start chỉ được phép với Trial còn quota thử hoặc Building entitlement Active, không tạo learner session và không mở bằng QR Trainee. ValidationRun/ValidationIssue là bằng chứng gate trước publish/playtest.
-- AI service phải trả usage metadata/request id cho BE; quota trả trước, pooled reservation allocation, policy snapshot và idempotency thuộc backend, không tự tính ở AI/FE/Mobile. AI không gọi reserve/settle quota hoặc provision payment và không có quyền accounting DML. BE ghi result qua contract có kiểm tra trạng thái/evidence; cùng request ID cùng evidence replay là no-op, evidence khác là conflict. Chuyển ChromaDB → pgvector là công việc triển khai tiếp theo, chưa hoàn tất trong API prototype.
+- AI service phải trả usage metadata/request id cho BE; quota trả trước, pooled reservation allocation, policy snapshot và idempotency thuộc backend, không tự tính ở AI/FE/Mobile. AI không gọi reserve/settle quota hoặc provision payment và không có quyền accounting DML. BE ghi result qua contract có kiểm tra trạng thái/evidence; cùng request ID cùng evidence replay là no-op, evidence khác là conflict. Adapter pgvector đã có trong RAG v2; migration dữ liệu legacy và nghiệm thu với BE/database/provider thật là các bước riêng.
 - IFC/Blender worker và Unity Editor build worker chạy độc lập với interactive RAG, nhận job qua outbox/queue có lease, attempt, input hash, artifact/hash và validation provenance. Worker không ghi payment, entitlement hoặc publish trực tiếp.
 
 ## Chạy và kiểm tra
@@ -95,7 +95,7 @@ Khi có checkout Docs bên cạnh, đọc `Docs/fire_evacuation_bim_rag_pccc.md`
 
 ## IFC ingestion, hiển thị và tương tác — 2026-10-15
 
-Nguồn: [IFC ingestion, hiển thị và tương tác](../../Docs/ifc_ingestion_visual_interaction.md) (Docs PR #15/#16). Đây là **đề xuất thiết kế** có bằng chứng spike cục bộ trên 32 file IFC công khai; chưa có worker, API, migration hay code Unity tương ứng. Mục 4 (nhiều IFC cho một revision), ngân sách tam giác và preset vật liệu còn chờ team chốt.
+Nguồn: [IFC ingestion, hiển thị và tương tác](../../Docs/ifc_ingestion_visual_interaction.md) (Docs PR #15/#16). Tài liệu gồm thiết kế và bằng chứng spike cục bộ trên 32 file IFC công khai. Source hiện đã có IFC worker (`AI/ifc-worker`), API/gate xử lý ở BE và Unity build worker; nghiệm thu từng bước với IFC thật, QA và Android vẫn phải kiểm tra riêng. Mục 4 (nhiều IFC cho một revision), ngân sách tam giác và preset vật liệu còn chờ team chốt.
 
 Quy tắc chung đã chốt với nhóm: chỉ nhận IFC (RVT tự xuất IFC ở ngoài); **IFC có thiết bị PCCC/nguồn nước thì pipeline tự tạo, không có thì OrganizationUser đặt trong editor**; mô hình 3D thiết bị luôn lấy từ thư viện dùng chung (có thể tạo bằng công cụ AI như Tripo rồi dọn lưới), không lấy từ IFC; IFC hầu như không mang màu/texture dùng được nên vật liệu lấy từ thư viện PBR CC0 theo preset.
 
@@ -108,7 +108,7 @@ Phụ trách: Nguyễn Phúc Lộc (AI/RAG). Việc liên quan repo này:
 ## Unity runtime và pipeline bake — 2026-10-17
 
 Quyết định của trưởng nhóm, đã vào Docs (PR #21–#24) và issue:
-- Unity runtime đã chạy trong Editor 6000.6.6f1: mô phỏng lửa/khói/nhiệt + NPC bằng **Entities**, camera third-person, tương tác theo ngữ cảnh, HUD, telemetry, nạp AssetBundle. APK demo build được (IL2CPP/ARM64). Code đang ở nhánh `feature/third-person-player-camera` của repo Unity, chưa lên `develop`.
+- Unity runtime đã chạy trong Editor 6000.6.6f1: mô phỏng lửa/khói/nhiệt + NPC bằng **Entities**, camera third-person, tương tác theo ngữ cảnh, HUD, telemetry, nạp AssetBundle. APK demo build được (IL2CPP/ARM64). Runtime đã có trên `main` của Unity; phiên bản tích hợp Mobile hiện là `2.0.2`. Source/build không thay cho nghiệm thu gameplay trên thiết bị.
 - **Ưu tiên hình ảnh:** Unity build worker chạy batch trên **Azure VM Windows do BE vận hành** (BE#110). Worker import GLB, gán material theo `libraryKey`, bake lightmap + light/reflection probe cho 2 bộ ánh sáng (bình thường, mất điện), xuất AssetBundle theo tầng + `manifest.json` (`fet3d.package/1`, SHA-256 từng file). Không dùng Addressables.
 - Texture PBR chỉ nằm trong project Unity (bundle `fet3d-materials` cài sẵn trong app). GLB chỉ mang `libraryKey`; BE và worker không lưu file ảnh.
 - `IFC_EXIT_UNKNOWN` = phương án B, chỉ dùng `door.exit` (BE#100).
