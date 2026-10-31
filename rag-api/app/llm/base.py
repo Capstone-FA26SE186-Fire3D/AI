@@ -13,6 +13,14 @@ class ProviderError(RuntimeError):
     pass
 
 
+class RateLimited(ProviderError):
+    """The provider refused for quota (HTTP 429); retry_after is its requested wait in seconds, when given."""
+
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
 class Provider(Protocol):
     name: str
     embedding_model: str

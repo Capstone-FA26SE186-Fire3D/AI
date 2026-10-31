@@ -1,13 +1,31 @@
 import json
+import re
 
 from google import genai
-from google.genai import types
+from google.genai import errors, types
 
-from app.llm.base import LlmUsage, ProviderError
+from app.llm.base import LlmUsage, ProviderError, RateLimited
 
 
 # Gemini embed_content accepts at most 100 inputs per call.
 EMBED_BATCH = 100
+
+
+def retry_delay(details: object) -> float | None:
+    """Seconds from the RetryInfo detail ("retryDelay": "37s") of a 429 body, wherever it is nested."""
+    if isinstance(details, dict):
+        value = details.get("retryDelay")
+        if isinstance(value, str) and (match := re.fullmatch(r"(\d+(?:\.\d+)?)s", value.strip())):
+            return float(match.group(1))
+        items = details.values()
+    elif isinstance(details, list):
+        items = details
+    else:
+        return None
+    for item in items:
+        if (found := retry_delay(item)) is not None:
+            return found
+    return None
 
 
 class GeminiProvider:
@@ -60,5 +78,9 @@ class GeminiProvider:
                 )
                 out.extend(list(item.values) for item in response.embeddings)
             return out
+        except errors.APIError as exc:
+            if exc.code == 429:
+                raise RateLimited("gemini embedding rate limited", retry_delay(exc.details)) from exc
+            raise ProviderError(f"gemini embedding failed: {type(exc).__name__}") from exc
         except Exception as exc:
             raise ProviderError(f"gemini embedding failed: {type(exc).__name__}") from exc

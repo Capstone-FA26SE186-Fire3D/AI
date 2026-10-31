@@ -24,7 +24,23 @@ Hệ thống chỉ hỗ trợ rà soát: không thẩm duyệt PCCC, không xác
 Các biến môi trường mới (xem `.env.example`): `ENVIRONMENT`, `AI_API_KEY` (bắt buộc khi `ENVIRONMENT=production`), `DATABASE_URL`,
 `KNOWLEDGE_DATABASE_URL`, `LLM_PROVIDER`, `GEMINI_API_KEY`, `GEMINI_CHAT_MODEL`, `GEMINI_EMBEDDING_MODEL`, `LLM_TIMEOUT_SECONDS`,
 `MAX_OUTPUT_TOKENS`, `REQUEST_STALE_SECONDS`, `RECOVERY_INTERVAL_SECONDS`, `SOURCE_MAX_BYTES`, `SOURCE_FETCH_TIMEOUT_SECONDS`,
-`SOURCE_TOTAL_DEADLINE_SECONDS` (mặc định 60: quá tổng thời gian này thì không tải thêm nguồn, trả `AI_SOURCE_UNAVAILABLE`).
+`EMBED_ITEMS_PER_MINUTE` (mặc định 80), `EMBED_BATCH_SIZE` (20), `SOURCE_RETRY_SECONDS` (300).
+
+### Chuẩn bị knowledge source (embed chạy nền)
+
+Câu hỏi không chờ embed. Nguồn `KnowledgeSource` đã embed đủ thì dùng ngay; nguồn chưa có thì bị bỏ qua cho câu đó (ghi
+`limitations` "Nguồn X đang được chuẩn bị…") và được xếp vào hàng đợi. Một luồng nền tải, cắt đoạn và embed theo lô
+`EMBED_BATCH_SIZE`, không quá `EMBED_ITEMS_PER_MINUTE` đoạn mỗi phút (Gemini gói miễn phí cho 100; phần còn lại để dành cho
+câu hỏi). Gặp 429, luồng nền chờ đúng `retryDelay` Gemini trả về rồi chạy tiếp. Lô nào embed xong thì lưu ngay vào
+`knowledge_chunks`; khởi động lại, nguồn đang dở được xếp hàng lại và chỉ embed các đoạn còn thiếu.
+
+- Câu hỏi chỉ thất bại khi không còn nguồn nào dùng được (kể cả nguồn inline): `503 AI_SOURCES_PREPARING` khi còn nguồn đang
+  chuẩn bị (BE tự gửi lại theo `OrganizationAi__MaxAttempts`/`BackoffSeconds`), hoặc lỗi của nguồn hỏng (`422
+  AI_SOURCE_UNAVAILABLE`, `AI_SOURCE_HASH_MISMATCH`). Nguồn lỗi được thử lại sau `SOURCE_RETRY_SECONDS`.
+- `POST /v2/sources/warm` (Bearer `AI_API_KEY`), body `{"sources": [SourcePin, ...]}` (1–100): xếp hàng embed trước khi có
+  câu hỏi, trả `202 {"sources": [{"document_id", "state": "ready" | "queued" | "failed", "code"?}]}`. Gọi lại để xem tiến độ.
+- Index chỉ bền khi `KNOWLEDGE_DATABASE_URL` trỏ tới PostgreSQL có pgvector; index trong bộ nhớ (chỉ `development`) mất khi
+  khởi động lại.
 Schema và fixture hợp đồng với BE nằm trong `contracts/` (xem `contracts/README.md`).
 
 `ENVIRONMENT` mặc định là `development` để chạy local tiện (SQLite, index trong bộ nhớ). **Production phải đặt
