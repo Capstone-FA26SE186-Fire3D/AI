@@ -31,6 +31,7 @@ def build_default_service(settings: Settings) -> "RequestService":
     from app.requests.service import RequestService
     from app.requests.store import make_store
     from app.sources.resolver import SourceResolver
+    from app.sources.warmer import SourceWarmer
 
     if settings.knowledge_database_url:
         from app.index.pgvector import PgVectorIndex
@@ -44,7 +45,9 @@ def build_default_service(settings: Settings) -> "RequestService":
         raise RuntimeError("KNOWLEDGE_DATABASE_URL must be set outside development")
     provider = get_provider(settings)
     store = make_store(settings.database_url)
-    return RequestService(store, SourceResolver(index, provider, settings), PipelineDeps(provider, index, settings))
+    warmer = SourceWarmer(index, provider, settings)
+    resolver = SourceResolver(index, provider, settings, warmer=warmer)
+    return RequestService(store, resolver, PipelineDeps(provider, index, settings))
 
 
 class ServiceHolder:
@@ -84,11 +87,20 @@ def create_app(settings: Settings | None = None, *, service: "RequestService | N
             # Callable source: a default service that cannot be built yet is retried each tick.
             loop = RecoveryLoop(holder.get, settings.recovery_interval_seconds)
             loop.start()
+        warmer = None
+        try:
+            # Resumes sources left part embedded; a service that cannot be built yet starts it on first use.
+            warmer = holder.get().resolver.warmer
+            warmer.start()
+        except Exception:
+            log.warning("source warmer not started at startup")
         try:
             yield
         finally:
             if loop is not None:
                 loop.stop()
+            if warmer is not None:
+                warmer.stop()
 
     app = FastAPI(title="Local RAG API", lifespan=lifespan)
     app.state.settings = settings

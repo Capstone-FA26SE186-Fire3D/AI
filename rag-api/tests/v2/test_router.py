@@ -232,3 +232,64 @@ def test_ready_default_service_fake_provider(tmp_path):
 def test_production_requires_knowledge_database():
     with pytest.raises(RuntimeError):
         create_app(Settings(environment="production", ai_api_key="k", knowledge_database_url=""))
+
+
+def _knowledge(body, doc="doc-1"):
+    return {"kind": "KnowledgeSource", "document_id": doc, "document_version": "v1", "title": "QCVN",
+            "content_hash": hashlib.sha256(body).hexdigest(), "source_uri": "https://files.example/a.txt"}
+
+
+def _background_env(tmp_path, body):
+    from app.sources.warmer import SourceWarmer
+
+    http = httpx.Client(transport=httpx.MockTransport(
+        lambda r: httpx.Response(200, content=body, headers={"content-type": "text/plain"})))
+    env = Env(tmp_path, http=http)
+    resolver = env.service.resolver
+    warmer = SourceWarmer(resolver.index, env.provider, env.settings, http)
+    warmer.start = lambda: None  # drained by hand below
+    resolver.warmer = warmer
+    return env, warmer
+
+
+def _drain(warmer):
+    while warmer._queue:
+        key, pin = next(iter(warmer._queue.items()))
+        warmer.run_one(key, pin)
+
+
+def test_unprepared_source_returns_503_preparing_then_answers(tmp_path):
+    body = "Bình chữa cháy xách tay dùng theo hướng dẫn.".encode()
+    env, warmer = _background_env(tmp_path, body)
+    req = _body(sources=[_knowledge(body)])
+    resp = env.post(req)
+    assert resp.status_code == 503
+    assert resp.json()["code"] == "AI_SOURCES_PREPARING"
+    assert env.client.get("/v2/requests/req-1").status_code == 404
+    assert env.provider.calls == []
+    _drain(warmer)
+    resp = env.post(req)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "Answered"
+
+
+def test_warm_endpoint_queues_and_reports(tmp_path):
+    body = b"Loi thoat nan phai thong thoang."
+    env, warmer = _background_env(tmp_path, body)
+    sources = [_knowledge(body), {"kind": "LearnPost", "document_id": "lp", "document_version": "1"}]
+    resp = env.client.post("/v2/sources/warm", json={"sources": sources})
+    assert resp.status_code == 202
+    assert resp.json()["sources"] == [
+        {"document_id": "doc-1", "state": "queued"},
+        {"document_id": "lp", "state": "failed", "code": "AI_SOURCE_UNAVAILABLE"},
+    ]
+    _drain(warmer)
+    resp = env.client.post("/v2/sources/warm", json={"sources": sources[:1]})
+    assert resp.json()["sources"] == [{"document_id": "doc-1", "state": "ready"}]
+    assert env.client.post("/v2/sources/warm", json={"sources": []}).status_code == 422
+
+
+def test_warm_endpoint_requires_key(tmp_path):
+    env = Env(tmp_path, api_key="secret")
+    resp = env.client.post("/v2/sources/warm", json={"sources": [_knowledge(b"x")]})
+    assert resp.status_code == 401

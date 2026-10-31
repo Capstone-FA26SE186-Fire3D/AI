@@ -8,7 +8,7 @@ import numpy as np
 import psycopg
 from pgvector.psycopg import register_vector
 
-from app.index.base import ScoredChunk
+from app.index.base import IncompleteSource, ScoredChunk
 from app.index.ranking import normalise, rrf_merge
 from app.sources.chunking import Chunk, format_locator
 
@@ -69,12 +69,79 @@ class PgVectorIndex:
         if not ids:
             return False
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT 1 FROM knowledge_chunks WHERE source_id = %s::uuid "
-                "AND metadata->>'content_hash' = %s AND metadata->>'embedding_model' = %s LIMIT 1",
+            stored, expected = conn.execute(
+                "SELECT count(*), max((metadata->>'chunk_count')::int) FROM knowledge_chunks WHERE source_id = %s::uuid "
+                "AND metadata->>'content_hash' = %s AND metadata->>'embedding_model' = %s",
                 (ids[0], content_hash, embedding_model),
             ).fetchone()
-        return row is not None
+        # Rows written by replace() carry no chunk_count: they were stored in one transaction, so complete.
+        return stored > 0 and (expected is None or stored >= expected)
+
+    def indexed_chunks(self, document_id: str, content_hash: str, embedding_model: str) -> set[int]:
+        ids = _uuids([document_id])
+        if not ids:
+            return set()
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT chunk_index FROM knowledge_chunks WHERE source_id = %s::uuid "
+                "AND metadata->>'content_hash' = %s AND metadata->>'embedding_model' = %s",
+                (ids[0], content_hash, embedding_model),
+            ).fetchall()
+        return {row[0] for row in rows}
+
+    def add_chunks(
+        self,
+        document_id: str,
+        document_version: str,
+        content_hash: str,
+        embedding_model: str,
+        chunk_count: int,
+        chunks: list[Chunk],
+        embeddings: list[list[float]],
+        source_uri: str | None = None,
+        title: str | None = None,
+    ) -> None:
+        if len(chunks) != len(embeddings):
+            raise ValueError("chunks and embeddings differ in length")
+        with self._connect() as conn:  # one transaction per batch: a crash keeps every earlier batch
+            conn.execute(
+                "DELETE FROM knowledge_chunks WHERE source_id = %s::uuid AND (metadata->>'content_hash' IS DISTINCT FROM %s "
+                "OR metadata->>'embedding_model' IS DISTINCT FROM %s)",
+                (document_id, content_hash, embedding_model),
+            )
+            for chunk, emb in zip(chunks, embeddings):
+                metadata = {
+                    "content_hash": content_hash,
+                    "document_version": document_version,
+                    "embedding_model": embedding_model,
+                    "embedding_dim": len(emb),
+                    "chunk_count": chunk_count,
+                    "source_uri": source_uri,
+                    "title": title,
+                }
+                conn.execute(
+                    "INSERT INTO knowledge_chunks (source_id, chunk_index, content, locator, embedding, metadata) "
+                    "VALUES (%s::uuid, %s, %s, %s::jsonb, %s, %s::jsonb) ON CONFLICT (source_id, chunk_index) DO NOTHING",
+                    (
+                        document_id,
+                        chunk.chunk_index,
+                        chunk.content,
+                        json.dumps(chunk.locator),
+                        np.asarray(emb, dtype=np.float32),
+                        json.dumps(metadata),
+                    ),
+                )
+
+    def incomplete_sources(self, embedding_model: str) -> list[IncompleteSource]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT source_id, metadata->>'document_version', metadata->>'content_hash', metadata->>'source_uri', "
+                "metadata->>'title' FROM knowledge_chunks "
+                "WHERE metadata->>'embedding_model' = %s AND metadata ? 'chunk_count' AND metadata->>'source_uri' IS NOT NULL "
+                "GROUP BY 1, 2, 3, 4, 5 HAVING count(*) < max((metadata->>'chunk_count')::int)",
+                (embedding_model,),
+            ).fetchall()
+        return [IncompleteSource(str(r[0]), r[1] or "", r[2], r[3], r[4]) for r in rows]
 
     def replace(
         self,

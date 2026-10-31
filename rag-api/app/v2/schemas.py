@@ -26,6 +26,10 @@ class SourcePin(_Model):
     content_omitted: bool = False
 
 
+class WarmRequest(_Model):
+    sources: list[SourcePin] = Field(min_length=1, max_length=100)
+
+
 class BimFloor(_Model):
     id: str
     name: str

@@ -25,7 +25,13 @@ class Settings(BaseSettings):
     recovery_max_attempts: int = 3
     source_max_bytes: int = 20_971_520
     source_fetch_timeout_seconds: float = 20
-    source_total_deadline_seconds: float = 60
+    # Background embedding of knowledge sources: items and estimated tokens per minute it may send (Gemini's free tier
+    # caps both per project; what is left stays free for question embeddings), items per call, and how long a failed
+    # source waits before a retry.
+    embed_items_per_minute: int = 80
+    embed_tokens_per_minute: int = 20_000
+    embed_batch_size: int = 20
+    source_retry_seconds: int = 300
     legacy_routes_enabled: bool = False
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     @property
