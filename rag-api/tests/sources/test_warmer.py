@@ -73,7 +73,7 @@ def _background(body, provider=None, log=None, **settings):
         clock.now += seconds
 
     warmer.start = lambda: None
-    warmer._sleep = warmer.limiter.sleep = sleep
+    warmer._sleep = warmer.limiter.sleep = warmer.token_limiter.sleep = sleep
     warmer.sleeps = sleeps
     return warmer, index, provider, clock
 
@@ -196,3 +196,11 @@ def test_rate_limiter_window():
     assert sleeps == []
     limiter.acquire(2)
     assert sleeps == [50]
+
+
+def test_token_budget_spreads_batches_over_minutes():
+    warmer, index, provider, clock = _background(LONG, embed_batch_size=1, embed_tokens_per_minute=400)
+    warmer.request(_pin(LONG))
+    drain(warmer)
+    assert sum(warmer.sleeps) >= 60 * (_chunk_count(LONG) - 1) * 0.5
+    assert index.has_current("doc-1", _pin(LONG).content_hash, provider.embedding_model)

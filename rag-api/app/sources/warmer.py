@@ -8,6 +8,7 @@ start, and only their missing chunks are embedded.
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from collections import deque
@@ -16,6 +17,7 @@ from urllib.parse import unquote, urlsplit
 
 import httpx
 
+from app.answering.usage import CHARS_PER_TOKEN
 from app.core.config import Settings
 from app.index.base import KnowledgeIndex
 from app.llm.base import Provider, ProviderError, RateLimited
@@ -45,7 +47,7 @@ class _Stopped(Exception):
 
 
 class RateLimiter:
-    """At most per_minute items in any 60-second window; acquire waits until the batch fits."""
+    """At most per_minute units (items or tokens) in any 60-second window; acquire waits until the batch fits."""
 
     def __init__(self, per_minute: int, clock: Callable[[], float], sleep: Callable[[float], None]) -> None:
         self.per_minute = max(1, per_minute)
@@ -85,6 +87,7 @@ class SourceWarmer:
         self.background = background
         self.clock = clock
         self.limiter = RateLimiter(settings.embed_items_per_minute, clock, self._sleep)
+        self.token_limiter = RateLimiter(settings.embed_tokens_per_minute, clock, self._sleep)
         self._queue: dict[tuple[str, str], SourcePin] = {}
         self._failed: dict[tuple[str, str], tuple[AdapterRefusal, float]] = {}
         self._cond = threading.Condition()
@@ -222,6 +225,7 @@ class SourceWarmer:
         limited = failed = 0
         while True:
             self.limiter.acquire(len(texts))
+            self.token_limiter.acquire(sum(math.ceil(len(text) / CHARS_PER_TOKEN) for text in texts))
             try:
                 return self.provider.embed(texts)
             except RateLimited as exc:
