@@ -35,16 +35,15 @@ Azure Container Apps vẫn khả thi, nhưng cần image build ở nơi khác; v
 | `LLM_TIMEOUT_SECONDS` | `45` |
 | `MAX_OUTPUT_TOKENS` | `1500` |
 | `SOURCE_FETCH_TIMEOUT_SECONDS` | `20` |
-| `SOURCE_TOTAL_DEADLINE_SECONDS` | `60` |
+| `EMBED_ITEMS_PER_MINUTE` | `80` |
 | `REQUEST_STALE_SECONDS` | `300` |
 | `LEGACY_ROUTES_ENABLED` | `false` |
 
 Phía BE (.NET) phải khớp: `OrganizationAi__BaseUrl` (URL nội bộ của service), `OrganizationAi__ApiKey` (cùng giá trị `AI_API_KEY`),
 `OrganizationAi__TimeoutSeconds=180` và `OrganizationAi__LeaseSeconds=240` (lease phải lớn hơn timeout).
 
-Lý do chọn 180 s: một request xấu nhất gồm tải nguồn chưa index (tối đa `SOURCE_TOTAL_DEADLINE_SECONDS`=60 s cho việc bắt đầu tải
-nguồn mới, cộng lần tải đang chạy dở tới `SOURCE_FETCH_TIMEOUT_SECONDS`), embedding, rồi một lần gọi LLM tới `LLM_TIMEOUT_SECONDS`
-(45 s). Timeout BE dài hơn tổng này để phần lớn request kết thúc bằng một response thật thay vì timeout.
+Lý do chọn 180 s: nguồn chưa index được embed ở luồng nền nên không nằm trong request; một request xấu nhất gồm embed nguồn
+inline và câu hỏi, rồi một lần gọi LLM tới `LLM_TIMEOUT_SECONDS` (45 s). Timeout BE dài hơn tổng này để phần lớn request kết thúc bằng một response thật thay vì timeout.
 
 Không có "lỗi có cấu trúc trước khi BE bỏ cuộc": theo contract của BE, khi kết quả không chắc chắn thì request ở lại
 `NeedsReconcile AI_OUTCOME_UNKNOWN` (giữ reservation, **không gửi lại, không tự hoàn**). Cụ thể: BE timeout; AI trả

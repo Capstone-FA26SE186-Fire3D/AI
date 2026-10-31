@@ -191,3 +191,16 @@ def test_gemini_other_models_keep_default_thinking(monkeypatch):
     _, usage = gemini_provider.GeminiProvider("k", "gemini-2.0-flash", "e", 45).generate("s", {}, {}, 50)
     assert seen["config"].thinking_config is None
     assert usage == LlmUsage(7, 3, "m")
+
+
+def test_gemini_retry_delay_parsed_from_429_details():
+    from app.llm.gemini_provider import retry_delay
+
+    body = {"error": {"code": 429, "status": "RESOURCE_EXHAUSTED", "details": [
+        {"@type": "type.googleapis.com/google.rpc.QuotaFailure"},
+        {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "37s"},
+    ]}}
+    assert retry_delay(body) == 37.0
+    assert retry_delay({"error": {"details": [{"retryDelay": "1.5s"}]}}) == 1.5
+    assert retry_delay({"error": {"message": "quota"}}) is None
+    assert retry_delay(None) is None

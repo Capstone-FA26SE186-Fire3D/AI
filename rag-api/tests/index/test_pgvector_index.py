@@ -77,3 +77,19 @@ def test_indexer_role_exists(pg_dsn):
     with psycopg.connect(pg_dsn) as conn:
         row = conn.execute("SELECT 1 FROM pg_roles WHERE rolname='fet3d_ai_indexer'").fetchone()
     assert row is not None
+
+
+def test_add_chunks_in_batches_complete_and_resume(pg_dsn, idx):
+    a = _source(pg_dsn)
+    chunks, embs = _chunks(a, "v1", 3), [[1.0, 0.0, 0.0], [0.8, 0.2, 0.0], [0.6, 0.4, 0.0]]
+    idx.add_chunks(a, "v1", "h1", "m1", 3, chunks[:1], embs[:1], source_uri="https://kb/a.pdf", title="A")
+    assert not idx.has_current(a, "h1", "m1")
+    assert idx.indexed_chunks(a, "h1", "m1") == {0}
+    [pending] = idx.incomplete_sources("m1")
+    assert (pending.document_id, pending.content_hash, pending.source_uri, pending.title) == (a, "h1", "https://kb/a.pdf", "A")
+    idx.add_chunks(a, "v1", "h1", "m1", 3, chunks[:2], embs[:2], source_uri="https://kb/a.pdf")  # repeat is harmless
+    idx.add_chunks(a, "v1", "h1", "m1", 3, chunks[2:], embs[2:], source_uri="https://kb/a.pdf")
+    assert idx.has_current(a, "h1", "m1")
+    assert idx.incomplete_sources("m1") == []
+    idx.add_chunks(a, "v2", "h2", "m1", 1, _chunks(a, "v2", 1), _emb(1))
+    assert not idx.has_current(a, "h1", "m1") and idx.has_current(a, "h2", "m1")

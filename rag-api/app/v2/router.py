@@ -1,4 +1,4 @@
-"""HTTP surface BE calls: POST /v2/{organization,trainee}/... and GET /v2/requests/{request_id}."""
+"""HTTP surface BE calls: POST /v2/{organization,trainee}/..., GET /v2/requests/{request_id} and POST /v2/sources/warm."""
 from __future__ import annotations
 
 import json
@@ -14,7 +14,8 @@ from starlette.concurrency import run_in_threadpool
 from app.core.config import Settings
 from app.requests.service import RequestService, error
 from app.v2.auth import require_bearer
-from app.v2.schemas import AdapterRequest
+from app.v2.errors import AdapterRefusal
+from app.v2.schemas import AdapterRequest, WarmRequest
 
 log = logging.getLogger("app.v2")
 
@@ -90,5 +91,43 @@ def build_v2_router(get_service: Callable[[], RequestService], settings: Setting
             log.exception("lookup failed", extra={"request_id": request_id})
             status, body = 503, error("AI_TEMPORARILY_UNAVAILABLE", "AI service is temporarily unavailable")
         return respond(status, body, request_id, started, route)
+
+    @router.post("/sources/warm")
+    async def warm(request: Request) -> JSONResponse:
+        """Queues knowledge sources for embedding before anyone asks (e.g. when an admin approves them)."""
+        started = time.perf_counter()
+        route = "POST /v2/sources/warm"
+        try:
+            body = WarmRequest.model_validate(json.loads(await request.body()))
+        except (ValueError, UnicodeDecodeError) as exc:
+            message = _validation_message(exc) if isinstance(exc, ValidationError) else "Body is not valid JSON"
+            return respond(422, error("AI_REQUEST_INVALID", message), None, started, route)
+        service = service_or_none()
+        if service is None:
+            return respond(503, error("AI_TEMPORARILY_UNAVAILABLE", "AI service is temporarily unavailable"),
+                           None, started, route)
+
+        def queue() -> list[dict]:
+            index, warmer = service.resolver.index, service.resolver.warmer
+            model = service.resolver.provider.embedding_model
+            states = []
+            for pin in body.sources:
+                if pin.kind != "KnowledgeSource" or not pin.content_hash:
+                    states.append({"document_id": pin.document_id, "state": "failed", "code": "AI_SOURCE_UNAVAILABLE"})
+                    continue
+                state = "ready" if index.has_current(pin.document_id, pin.content_hash, model) else warmer.request(pin)
+                if isinstance(state, AdapterRefusal):
+                    states.append({"document_id": pin.document_id, "state": "failed", "code": state.code})
+                else:
+                    states.append({"document_id": pin.document_id, "state": state})
+            return states
+
+        try:
+            states = await run_in_threadpool(queue)
+        except Exception:
+            log.exception("warm failed")
+            return respond(503, error("AI_TEMPORARILY_UNAVAILABLE", "AI service is temporarily unavailable"),
+                           None, started, route)
+        return respond(202, {"sources": states}, None, started, route)
 
     return router
