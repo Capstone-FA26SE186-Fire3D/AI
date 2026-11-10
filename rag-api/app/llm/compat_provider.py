@@ -5,10 +5,13 @@ system prompt and the reply is parsed leniently (code fences and text around the
 still validates the fields, so a reply that is valid JSON but the wrong shape ends as InsufficientEvidence, not a crash.
 """
 import json
+import logging
 
 from openai import OpenAI, RateLimitError
 
 from app.llm.base import LlmUsage, Provider, ProviderError, RateLimited, embed_query
+
+log = logging.getLogger(__name__)
 
 SCHEMA_RULE = (
     "\n\nChỉ trả về MỘT đối tượng JSON hợp lệ, không markdown, không giải thích thêm, đúng JSON Schema sau:\n"
@@ -52,13 +55,22 @@ class CompatChatProvider:
                 max_tokens=max_output_tokens,
                 **extra,
             )
-            data = extract_json(response.choices[0].message.content or "")
             usage = response.usage
-            return data, LlmUsage(
+            llm = LlmUsage(
                 int(getattr(usage, "prompt_tokens", 0) or 0),
                 int(getattr(usage, "completion_tokens", 0) or 0),
                 response.model or self.chat_model,
             )
+            try:
+                data = extract_json(response.choices[0].message.content or "")
+            except (json.JSONDecodeError, IndexError, AttributeError):
+                # The call ran and is billed: hand back an empty object with its usage so the pipeline settles it as
+                # invalid output (InsufficientEvidence) instead of an unknown outcome. Typical cause: the reply was
+                # cut off at max_tokens (finish_reason "length").
+                finish = getattr(response.choices[0], "finish_reason", None) if response.choices else None
+                log.warning("chat gateway returned unusable JSON (finish_reason=%s)", finish)
+                data = {}
+            return data, llm
         except RateLimitError as exc:
             raise RateLimited("chat gateway rate limited") from exc
         except (json.JSONDecodeError, IndexError, AttributeError) as exc:

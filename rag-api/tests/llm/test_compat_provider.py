@@ -71,11 +71,15 @@ def test_no_reasoning_effort_when_blank(monkeypatch):
     assert "reasoning_effort" not in seen["create"]
 
 
-@pytest.mark.parametrize("reply", [completion("nope"), completion(None), SimpleNamespace(choices=[], usage=None, model="m")])
-def test_bad_replies_are_provider_errors(monkeypatch, reply):
+@pytest.mark.parametrize("reply", [completion("nope"), completion(None), completion('{"a": "cut off'),
+                                   SimpleNamespace(choices=[], usage=None, model="m")])
+def test_unusable_replies_return_empty_object_with_usage(monkeypatch, reply):
+    """A billed call whose text is not JSON (often cut at max_tokens) settles as invalid output, not an error."""
     stub_client(monkeypatch, reply)
-    with pytest.raises(ProviderError):
-        CompatChatProvider("k", "u", "m", 1).generate("s", {}, {}, 1)
+    data, usage = CompatChatProvider("k", "u", "m", 1).generate("s", {}, {}, 1)
+    assert data == {}
+    if reply.usage is not None:
+        assert usage == LlmUsage(12, 7, "gw-model")
 
 
 def test_rate_limit_is_rate_limited_and_errors_hide_details(monkeypatch):
