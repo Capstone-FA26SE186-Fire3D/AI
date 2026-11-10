@@ -23,7 +23,8 @@ from app.index.base import KnowledgeIndex
 from app.llm.base import Provider, ProviderError, RateLimited
 from app.sources.chunking import chunk_sections
 from app.sources.fetch import fetch_document
-from app.sources.render import document_sections
+from app.sources.embedding_cache import EmbeddingCache
+from app.sources.render import document_sections, inline_sections
 from app.v2.errors import AdapterRefusal, refuse
 from app.v2.schemas import SourcePin
 
@@ -88,6 +89,7 @@ class SourceWarmer:
         self.clock = clock
         self.limiter = RateLimiter(settings.embed_items_per_minute, clock, self._sleep)
         self.token_limiter = RateLimiter(settings.embed_tokens_per_minute, clock, self._sleep)
+        self.inline_cache = EmbeddingCache(settings.inline_cache_items)
         self._queue: dict[tuple[str, str], SourcePin] = {}
         self._failed: dict[tuple[str, str], tuple[AdapterRefusal, float]] = {}
         self._cond = threading.Condition()
@@ -98,9 +100,9 @@ class SourceWarmer:
 
     def request(self, pin: SourcePin) -> str | AdapterRefusal:
         """READY, QUEUED, or the refusal of a recent failure; never blocks on embedding in background mode."""
-        if not pin.source_uri:
+        if pin.kind == "KnowledgeSource" and not pin.source_uri:
             return refuse("AI_SOURCE_UNAVAILABLE", f"Source {pin.document_id} has no source_uri")
-        key = (pin.document_id, pin.content_hash or "")
+        key = (pin.document_id, pin.content_hash or pin.document_version)
         if not self.background:
             try:
                 self._warm(pin)
@@ -192,6 +194,9 @@ class SourceWarmer:
             raise _Stopped()
 
     def _warm(self, pin: SourcePin) -> None:
+        if pin.kind != "KnowledgeSource":
+            self._warm_inline(pin)
+            return
         model = self.provider.embedding_model
         content_hash = pin.content_hash or ""
         if self.index.has_current(pin.document_id, content_hash, model):
@@ -220,6 +225,18 @@ class SourceWarmer:
                 source_uri=pin.source_uri, title=pin.title,
             )
         log.info("source %s ready", pin.document_id)
+
+    def _warm_inline(self, pin: SourcePin) -> None:
+        """Inline content (sent with the question) only fills the embedding cache; nothing is fetched or indexed."""
+        model = self.provider.embedding_model
+        texts = [c.content for c in chunk_sections(inline_sections(pin), pin.document_id, pin.document_version)]
+        missing = [t for t, v in zip(texts, self.inline_cache.get_many(model, texts)) if v is None]
+        size = max(1, self.settings.embed_batch_size)
+        if missing:
+            log.info("embedding inline source %s: %d of %d chunks left", pin.document_id, len(missing), len(texts))
+        for start in range(0, len(missing), size):
+            batch = missing[start:start + size]
+            self.inline_cache.put_many(model, batch, self._embed(batch))
 
     def _embed(self, texts: list[str]) -> list[list[float]]:
         limited = failed = 0

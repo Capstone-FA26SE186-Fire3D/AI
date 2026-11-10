@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     embed_tokens_per_minute: int = 20_000
     embed_batch_size: int = 20
     source_retry_seconds: int = 300
+    # Inline content (lessons, library items) is embedded once per process and cached by chunk text. Up to
+    # inline_sync_chunks missing chunks are embedded during the question; more go to the background warmer while the
+    # question uses the chunks already cached.
+    inline_sync_chunks: int = 20
+    inline_cache_items: int = 5000
     legacy_routes_enabled: bool = False
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     @property
