@@ -18,6 +18,13 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_chat_model: str = "gemini-2.5-flash"
     gemini_embedding_model: str = "gemini-embedding-001"
+    # Optional: answer through an OpenAI-compatible gateway (CHAT_PROVIDER=openai_compat) while LLM_PROVIDER keeps
+    # embedding. Empty CHAT_PROVIDER means LLM_PROVIDER does both.
+    chat_provider: str = ""
+    chat_base_url: str = ""
+    chat_api_key: str = ""
+    chat_model: str = ""
+    chat_reasoning_effort: str = "low"
     llm_timeout_seconds: float = 45
     max_output_tokens: int = 1500
     request_stale_seconds: int = 300

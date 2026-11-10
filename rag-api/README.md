@@ -27,6 +27,12 @@ Các biến môi trường mới (xem `.env.example`): `ENVIRONMENT`, `AI_API_KE
 `EMBED_ITEMS_PER_MINUTE` (mặc định 80), `EMBED_TOKENS_PER_MINUTE` (20000, ước lượng ký tự/2,5), `EMBED_BATCH_SIZE` (20),
 `SOURCE_RETRY_SECONDS` (300).
 
+Tách nhà cung cấp trả lời và embedding (tuỳ chọn): đặt `CHAT_PROVIDER=openai_compat`, `CHAT_BASE_URL` (ví dụ
+`https://gateway.example/v1`), `CHAT_API_KEY`, `CHAT_MODEL` thì câu trả lời đi qua cổng chat completions đó, còn
+`LLM_PROVIDER` vẫn embed (vector cũ không phải tạo lại). Nhiều cổng bỏ qua `response_format`, nên JSON Schema được đưa vào
+system prompt và câu trả lời được đọc JSON có khoan dung (bỏ ``` và chữ thừa); `CHAT_REASONING_EFFORT` (mặc định `low`, để
+trống để không gửi) giảm token "suy nghĩ". Câu hỏi và đoạn tài liệu được gửi tới cổng này.
+
 ### Chuẩn bị knowledge source (embed chạy nền)
 
 Câu hỏi không chờ embed. Nguồn `KnowledgeSource` đã embed đủ thì dùng ngay; nguồn chưa có thì bị bỏ qua cho câu đó (ghi

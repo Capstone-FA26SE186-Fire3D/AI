@@ -3,6 +3,25 @@ from app.llm.base import Provider, ProviderError
 
 
 def get_provider(settings: Settings) -> Provider:
+    """LLM_PROVIDER answers and embeds; CHAT_PROVIDER=openai_compat moves only the answering to a gateway."""
+    base = _base_provider(settings)
+    chat = settings.chat_provider.lower()
+    if not chat:
+        return base
+    if chat != "openai_compat":
+        raise ProviderError(f"unknown chat provider: {chat}")
+    if not (settings.chat_api_key and settings.chat_base_url and settings.chat_model):
+        raise ProviderError("openai_compat chat provider not configured")
+    from app.llm.compat_provider import CompatChatProvider, SplitProvider
+
+    gateway = CompatChatProvider(
+        settings.chat_api_key, settings.chat_base_url, settings.chat_model, settings.llm_timeout_seconds,
+        settings.chat_reasoning_effort,
+    )
+    return SplitProvider(gateway, base)
+
+
+def _base_provider(settings: Settings) -> Provider:
     name = settings.llm_provider.lower()
     if name == "fake":
         from app.llm.fake import FakeProvider
