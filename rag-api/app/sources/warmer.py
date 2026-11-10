@@ -1,6 +1,6 @@
 """Embeds knowledge sources outside the request path.
 
-One daemon thread drains a queue of pinned sources: it fetches (or, for inline content, renders) and chunks each document, embeds the chunks in small
+One daemon thread drains a queue of pinned sources: it fetches and chunks each document, embeds the chunks in small
 batches under a per-minute item budget (waiting out a provider 429 for the delay it asks for) and stores every batch as
 soon as it is embedded. A restart resumes from the stored batches: the sources left incomplete are queued again on
 start, and only their missing chunks are embedded.
@@ -23,7 +23,7 @@ from app.index.base import KnowledgeIndex
 from app.llm.base import Provider, ProviderError, RateLimited
 from app.sources.chunking import chunk_sections
 from app.sources.fetch import fetch_document
-from app.sources.render import document_sections, inline_sections
+from app.sources.render import document_sections
 from app.v2.errors import AdapterRefusal, refuse
 from app.v2.schemas import SourcePin
 
@@ -98,7 +98,7 @@ class SourceWarmer:
 
     def request(self, pin: SourcePin) -> str | AdapterRefusal:
         """READY, QUEUED, or the refusal of a recent failure; never blocks on embedding in background mode."""
-        if pin.kind == "KnowledgeSource" and not pin.source_uri:
+        if not pin.source_uri:
             return refuse("AI_SOURCE_UNAVAILABLE", f"Source {pin.document_id} has no source_uri")
         key = (pin.document_id, pin.content_hash or "")
         if not self.background:
@@ -150,8 +150,6 @@ class SourceWarmer:
             return
         with self._cond:
             for src in incomplete:
-                if not src.source_uri:
-                    continue  # inline content is not stored; its next question queues it again
                 pin = SourcePin(
                     kind="KnowledgeSource", document_id=src.document_id, document_version=src.document_version,
                     title=src.title, content_hash=src.content_hash, source_uri=src.source_uri,
@@ -198,18 +196,16 @@ class SourceWarmer:
         content_hash = pin.content_hash or ""
         if self.index.has_current(pin.document_id, content_hash, model):
             return
-        if pin.kind == "KnowledgeSource":
-            data, content_type = fetch_document(
-                pin.source_uri,
-                content_hash,
-                max_bytes=self.settings.source_max_bytes,
-                timeout=self.settings.source_fetch_timeout_seconds,
-                client=self.http,
-            )
-            sections = document_sections(data, content_type, _filename(pin.source_uri))
-        else:
-            sections = inline_sections(pin)  # content sent with the question; nothing to fetch
-        chunks = chunk_sections(sections, pin.document_id, pin.document_version)
+        data, content_type = fetch_document(
+            pin.source_uri,
+            content_hash,
+            max_bytes=self.settings.source_max_bytes,
+            timeout=self.settings.source_fetch_timeout_seconds,
+            client=self.http,
+        )
+        chunks = chunk_sections(
+            document_sections(data, content_type, _filename(pin.source_uri)), pin.document_id, pin.document_version
+        )
         if not chunks:
             raise refuse("AI_SOURCE_UNAVAILABLE", f"Source {pin.document_id} has no readable text")
         done = self.index.indexed_chunks(pin.document_id, content_hash, model)
