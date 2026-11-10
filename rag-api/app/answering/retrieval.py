@@ -16,7 +16,12 @@ def retrieve(
 ) -> list[ScoredChunk]:
     if not prepared.knowledge_ids and not prepared.inline_chunks:
         return []
-    query_embedding = provider.embed([question])[0]
+    # Normally embedded by the request service before the request is marked Processing (a quota error there is a clean,
+    # retryable 503 instead of an unknown outcome); embedded here only for callers that skip that step.
+    if prepared.query_embedding is not None:
+        query_embedding = prepared.query_embedding
+    else:
+        query_embedding = provider.embed([question])[0]
     by_id: dict[str, ScoredChunk] = {}
     rankings: list[list[str]] = []
     if prepared.knowledge_ids:

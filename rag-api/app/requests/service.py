@@ -144,6 +144,10 @@ class RequestService:
         # Row is ours and Received: no provider side-effect yet, so failures delete it.
         try:
             prepared = self.resolver.prepare(req.sources)
+            if prepared.knowledge_ids or prepared.inline_chunks:
+                # Before mark_processing: a quota error here deletes the row and returns a retryable 503
+                # instead of an unknown outcome after Processing.
+                prepared.query_embedding = self.resolver.provider.embed([req.input.text])[0]
             if not self.store.mark_processing(rid):
                 # Purged/changed underneath us; nothing was sent to a provider.
                 log.warning("mark_processing lost the row", extra={"request_id": rid})

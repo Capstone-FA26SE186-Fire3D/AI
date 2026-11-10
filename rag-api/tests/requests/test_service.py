@@ -266,3 +266,28 @@ def test_recovery_refusal_before_cap_leaves_processing(db_url):
     rec = service.store.get("early")
     assert rec.status == "Processing" and rec.attempts == 2
     assert service.lookup("early")[0] == 202
+
+
+def test_question_embedding_quota_error_is_clean_503_not_unknown(db_url):
+    """The question is embedded before Processing: a 429 there deletes the row and lets the BE retry."""
+    from app.llm.base import RateLimited
+
+    service, provider = _service(db_url)
+    real_embed = provider.embed
+    calls = []
+
+    def embed(texts):
+        calls.append(texts)
+        if texts == ["bình chữa cháy dùng thế nào"] and len(calls) == 2:
+            raise RateLimited("quota", 30)
+        return real_embed(texts)
+
+    provider.embed = embed
+    req = AdapterRequest.model_validate(_body())
+    status, body = service.submit("organization/answer", req)
+    assert status == 503 and body["code"] != "AI_OUTCOME_UNKNOWN"
+    assert service.store.get(req.request_id) is None
+    assert provider.calls == []
+
+    status, body = service.submit("organization/answer", req)  # BE retry succeeds
+    assert status == 200 and body["status"] == "Answered"

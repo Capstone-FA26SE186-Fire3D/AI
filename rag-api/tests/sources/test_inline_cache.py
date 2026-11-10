@@ -132,3 +132,20 @@ def test_inline_without_hash_or_uri_is_queued_not_refused():
     with pytest.raises(AdapterRefusal) as err:
         resolver.prepare([pin])
     assert err.value.code == "AI_SOURCES_PREPARING" and warmer.pending() == 1
+
+
+def test_direct_embedding_budget_is_shared_by_all_inline_sources():
+    resolver, _, provider, warmer = setup(sync_chunks=3)
+    pins = [lesson().model_copy(update={"document_id": f"post-{i}", "content": {"title": f"Bài {i} bình chữa cháy"}})
+            for i in range(6)]
+    prepared = resolver.prepare(pins)
+    assert sum(provider.embedded) == 3  # not 6: the budget is per question, not per source
+    assert warmer.pending() == 3 and len(prepared.inline_chunks) == 3
+
+
+def test_direct_embedding_stops_after_a_provider_error():
+    resolver, _, provider, warmer = setup(provider=CountingProvider(fail=1), sync_chunks=20)
+    pins = [lesson().model_copy(update={"document_id": f"post-{i}", "content": {"title": f"Bài {i}"}}) for i in range(4)]
+    with pytest.raises(AdapterRefusal):
+        resolver.prepare(pins)
+    assert provider.embedded == [] and warmer.pending() == 4

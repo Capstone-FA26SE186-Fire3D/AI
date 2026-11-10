@@ -27,10 +27,19 @@ class PreparedSources:
     knowledge_ids: list[str] = field(default_factory=list)
     inline_chunks: list[Chunk] = field(default_factory=list)
     inline_embeddings: list[list[float]] = field(default_factory=list)
+    query_embedding: list[float] | None = None
     pins: dict[str, SourcePin] = field(default_factory=dict)
     limitations: list[str] = field(default_factory=list)
 
 log = logging.getLogger(__name__)
+
+
+@dataclass
+class _Budget:
+    """Chunks one question may still embed directly, across all its inline sources."""
+
+    left: int
+
 PARTIAL = "partial"
 
 
@@ -56,13 +65,15 @@ class SourceResolver:
     def prepare(self, pins: list[SourcePin]) -> PreparedSources:
         prepared = PreparedSources()
         preparing: list[SourcePin] = []
+        # Chunks this question may still embed directly, across all its inline sources; 0 after a provider error.
+        budget = _Budget(self.settings.inline_sync_chunks)
         failed: list[tuple[SourcePin, AdapterRefusal]] = []
         for pin in pins:
             if pin.content_omitted:
                 prepared.limitations.append(f"Nguồn {_name(pin)} quá lớn, không được dùng.")
                 continue
             if pin.kind != "KnowledgeSource":
-                state = self._prepare_inline(pin, prepared)
+                state = self._prepare_inline(pin, prepared, budget)
                 if state == QUEUED:
                     preparing.append(pin)
                 elif state == PARTIAL:
@@ -97,7 +108,7 @@ class SourceResolver:
         prepared.limitations.extend(f"Nguồn {_name(pin)} hiện không dùng được." for pin, _ in failed)
         return prepared
 
-    def _prepare_inline(self, pin: SourcePin, prepared: PreparedSources) -> str:
+    def _prepare_inline(self, pin: SourcePin, prepared: PreparedSources, budget: _Budget | None = None) -> str:
         """Adds the inline chunks whose embeddings are cached (embedding a few missing ones now); READY, PARTIAL or
         QUEUED (nothing usable yet, the warmer is filling the cache)."""
         chunks = chunk_sections(inline_sections(pin), pin.document_id, pin.document_version)
@@ -108,10 +119,13 @@ class SourceResolver:
         texts = [c.content for c in chunks]
         vectors = cache.get_many(model, texts)
         missing = [i for i, vec in enumerate(vectors) if vec is None]
-        if missing and len(missing) <= self.settings.inline_sync_chunks:
+        budget = budget or _Budget(self.settings.inline_sync_chunks)
+        if missing and len(missing) <= budget.left:
+            budget.left -= len(missing)
             try:
                 fresh = self.provider.embed([texts[i] for i in missing])
             except ProviderError:
+                budget.left = 0  # quota is likely gone: leave the rest of this question to the warmer
                 log.info("inline source %s left to the warmer after a failed embed", pin.document_id)
             else:
                 cache.put_many(model, [texts[i] for i in missing], fresh)
