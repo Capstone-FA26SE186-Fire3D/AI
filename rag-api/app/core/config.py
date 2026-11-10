@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     local_embed_threads: int = 0
     llm_timeout_seconds: float = 45
     max_output_tokens: int = 1500
+    # When no approved source fits a question (Answer/TraineeAnswer), answer everyday fire-safety and app questions
+    # generally (still InsufficientEvidence, labelled as not source-based) and decline off-topic ones.
+    general_answers: bool = False
     request_stale_seconds: int = 300
     recovery_interval_seconds: int = 30
     recovery_max_attempts: int = 3

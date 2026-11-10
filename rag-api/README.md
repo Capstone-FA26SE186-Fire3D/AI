@@ -33,6 +33,12 @@ Tách nhà cung cấp trả lời và embedding (tuỳ chọn): đặt `CHAT_PRO
 system prompt và câu trả lời được đọc JSON có khoan dung (bỏ ``` và chữ thừa); `CHAT_REASONING_EFFORT` (mặc định `low`, để
 trống để không gửi) giảm token "suy nghĩ". Câu hỏi và đoạn tài liệu được gửi tới cổng này.
 
+Trả lời chung (tuỳ chọn): `GENERAL_ANSWERS=true` — khi Hỏi đáp không có nguồn đã duyệt phù hợp, AI gọi model thêm một lần
+với prompt giới hạn phạm vi (`app/answering/general.py`): chào hỏi, cách dùng FET3D và kiến thức PCCC phổ thông; câu ngoài chủ đề
+nhận câu từ chối cố định; không nêu số liệu/điều khoản quy chuẩn, không chứng nhận. Safety gate vẫn chạy trước, kết quả vẫn là
+`InsufficientEvidence` (BE chỉ nhận `Answered` khi có trích dẫn) kèm limitation "không dựa trên tài liệu đã duyệt". Không áp
+dụng cho ScenarioDraft.
+
 Embedding tại chỗ (tuỳ chọn): `EMBED_PROVIDER=local` dùng `intfloat/multilingual-e5-small` bản int8 (ONNX qua
 `fastembed`, khoảng 130 MB đĩa, 0,5 GB RAM, đọc tới 512 token) trong `LOCAL_MODEL_DIR`, không quota và không gửi dữ liệu ra
 ngoài. Vector lưu với model `local:multilingual-e5-small-q8`; tài liệu đã embed bằng model khác được warmer embed lại. Khi chạy
