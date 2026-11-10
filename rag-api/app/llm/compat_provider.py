@@ -8,7 +8,7 @@ import json
 
 from openai import OpenAI, RateLimitError
 
-from app.llm.base import LlmUsage, Provider, ProviderError, RateLimited
+from app.llm.base import LlmUsage, Provider, ProviderError, RateLimited, embed_query
 
 SCHEMA_RULE = (
     "\n\nChỉ trả về MỘT đối tượng JSON hợp lệ, không markdown, không giải thích thêm, đúng JSON Schema sau:\n"
@@ -73,7 +73,7 @@ class CompatChatProvider:
 class SplitProvider:
     """Answers with `chat`, embeds with `embedder` (whose model names the stored vectors)."""
 
-    def __init__(self, chat: CompatChatProvider, embedder: Provider):
+    def __init__(self, chat: Provider, embedder: Provider):
         self.chat = chat
         self.embedder = embedder
         self.name = f"{chat.name}+{embedder.name}"
@@ -84,3 +84,6 @@ class SplitProvider:
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         return self.embedder.embed(texts)
+
+    def embed_query(self, text: str) -> list[float]:
+        return embed_query(self.embedder, text)

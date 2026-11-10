@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from app.index.base import KnowledgeIndex, ScoredChunk
 from app.index.ranking import normalise, rank_chunks, rrf_merge
-from app.llm.base import Provider
+from app.llm.base import Provider, embed_query
 from app.sources.resolver import PreparedSources
 
 
@@ -21,7 +21,7 @@ def retrieve(
     if prepared.query_embedding is not None:
         query_embedding = prepared.query_embedding
     else:
-        query_embedding = provider.embed([question])[0]
+        query_embedding = embed_query(provider, question)
     by_id: dict[str, ScoredChunk] = {}
     rankings: list[list[str]] = []
     if prepared.knowledge_ids:

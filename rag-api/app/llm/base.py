@@ -28,3 +28,9 @@ class Provider(Protocol):
     def generate(self, system: str, payload: dict, schema: dict, max_output_tokens: int) -> tuple[dict, LlmUsage]: ...
 
     def embed(self, texts: list[str]) -> list[list[float]]: ...
+
+
+def embed_query(provider: object, text: str) -> list[float]:
+    """The question's vector: providers whose model wants a query form (e5's \"query: \") define embed_query."""
+    query = getattr(provider, "embed_query", None)
+    return query(text) if callable(query) else provider.embed([text])[0]

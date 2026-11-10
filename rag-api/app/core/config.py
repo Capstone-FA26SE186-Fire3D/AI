@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     chat_api_key: str = ""
     chat_model: str = ""
     chat_reasoning_effort: str = "low"
+    # Optional: EMBED_PROVIDER=local embeds with a model on this machine (no quota); stored vectors of another model
+    # are re-embedded by the warmer. LOCAL_EMBED_THREADS=0 lets ONNX pick.
+    embed_provider: str = ""
+    local_model_dir: str = "./data/models"
+    local_embed_threads: int = 0
     llm_timeout_seconds: float = 45
     max_output_tokens: int = 1500
     request_stale_seconds: int = 300

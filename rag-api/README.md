@@ -33,6 +33,11 @@ Tách nhà cung cấp trả lời và embedding (tuỳ chọn): đặt `CHAT_PRO
 system prompt và câu trả lời được đọc JSON có khoan dung (bỏ ``` và chữ thừa); `CHAT_REASONING_EFFORT` (mặc định `low`, để
 trống để không gửi) giảm token "suy nghĩ". Câu hỏi và đoạn tài liệu được gửi tới cổng này.
 
+Embedding tại chỗ (tuỳ chọn): `EMBED_PROVIDER=local` dùng `intfloat/multilingual-e5-small` bản int8 (ONNX qua
+`fastembed`, khoảng 130 MB đĩa, 0,5 GB RAM, đọc tới 512 token) trong `LOCAL_MODEL_DIR`, không quota và không gửi dữ liệu ra
+ngoài. Vector lưu với model `local:multilingual-e5-small-q8`; tài liệu đã embed bằng model khác được warmer embed lại. Khi chạy
+máy CPU, đặt `EMBED_ITEMS_PER_MINUTE`/`EMBED_TOKENS_PER_MINUTE` cao (giới hạn đó dành cho quota nhà cung cấp).
+
 ### Chuẩn bị knowledge source (embed chạy nền)
 
 Câu hỏi không chờ embed. Nguồn `KnowledgeSource` đã embed đủ thì dùng ngay; nguồn chưa có thì bị bỏ qua cho câu đó (ghi

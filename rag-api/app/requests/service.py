@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.answering.pipeline import PipelineDeps, run_pipeline
 from app.answering.usage import context_budget, to_usage
-from app.llm.base import LlmUsage
+from app.llm.base import LlmUsage, embed_query
 from app.requests.store import USAGE_SUM_FIELDS, RequestRecord, RequestStore
 from app.sources.resolver import SourceResolver
 from app.v2.errors import AdapterRefusal
@@ -147,7 +147,7 @@ class RequestService:
             if prepared.knowledge_ids or prepared.inline_chunks:
                 # Before mark_processing: a quota error here deletes the row and returns a retryable 503
                 # instead of an unknown outcome after Processing.
-                prepared.query_embedding = self.resolver.provider.embed([req.input.text])[0]
+                prepared.query_embedding = embed_query(self.resolver.provider, req.input.text)
             if not self.store.mark_processing(rid):
                 # Purged/changed underneath us; nothing was sent to a provider.
                 log.warning("mark_processing lost the row", extra={"request_id": rid})
