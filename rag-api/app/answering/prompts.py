@@ -112,7 +112,16 @@ def system_prompt(audience: str, operation: str, context_kind: str | None) -> st
         parts.append("Người hỏi thuộc tổ chức; trả lời chính xác, nêu rõ giới hạn của nguồn.")
     if context_kind == "Result":
         parts.append(
-            "Ngữ cảnh là kết quả huấn luyện đã lưu: chỉ giải thích kết quả đã lưu, không chấm lại và không thay đổi điểm số."
+            "Ngữ cảnh là kết quả huấn luyện đã lưu: chỉ giải thích kết quả đã lưu, không chấm lại và không thay đổi điểm số. "
+            "Khi được hỏi nhận xét hay cách làm tốt hơn, đi lần lượt từng tiêu chí có trong nguồn: đạt hay chưa đạt, "
+            "giá trị đạt được so với yêu cầu, vì sao, và lần sau cần làm gì trong bài để đạt; ưu tiên tiêu chí bắt buộc chưa đạt. "
+            "Lượt Học/Diễn tập không có tiêu chí chấm: khi đó nhận xét theo các chỉ số đã đo và nói rõ lượt này không chấm đạt/chưa đạt."
+        )
+    elif context_kind == "Training":
+        parts.append(
+            "Ngữ cảnh là bài huấn luyện học viên sắp làm. Khi được hỏi cách hoàn thành bài, đi lần lượt từng tiêu chí có trong nguồn "
+            "(theo tên, mô tả và chỉ số đo) và nêu việc cụ thể cần làm trong bài để hoàn thành tiêu chí đó; nếu nguồn không có tiêu chí "
+            "thì hướng dẫn theo mục tiêu và hướng dẫn của bài. Không đoán ngưỡng, trọng số hay điểm đạt vì chúng không được cung cấp."
         )
     elif context_kind:
         parts.append(f"Loại ngữ cảnh: {context_kind}.")

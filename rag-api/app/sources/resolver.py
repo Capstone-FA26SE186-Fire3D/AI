@@ -16,6 +16,7 @@ from app.core.config import Settings
 from app.index.base import KnowledgeIndex
 from app.llm.base import Provider, ProviderError
 from app.sources.chunking import Chunk, chunk_sections
+from app.sources.criteria import is_context_snapshot
 from app.sources.render import inline_sections
 from app.sources.warmer import QUEUED, READY, SourceWarmer
 from app.v2.errors import AdapterRefusal, refuse
@@ -114,6 +115,13 @@ class SourceResolver:
         chunks = chunk_sections(inline_sections(pin), pin.document_id, pin.document_version)
         if not chunks:
             return READY
+        if is_context_snapshot(pin.kind):
+            # The Training snapshot / Session result is passed to the model whole (retrieval._with_context), never
+            # ranked, so it needs no embedding and does not use this question's embedding budget.
+            prepared.inline_chunks.extend(chunks)
+            prepared.inline_embeddings.extend([] for _ in chunks)
+            prepared.pins[pin.document_id] = pin
+            return READY
         model = self.provider.embedding_model
         cache = self.warmer.inline_cache
         texts = [c.content for c in chunks]
@@ -132,8 +140,10 @@ class SourceResolver:
                 for i, vec in zip(missing, fresh):
                     vectors[i] = vec
                 missing = []
-        if missing:
-            self.warmer.request(pin)
+        if missing and self.warmer.request(pin) == READY:
+            # A warmer without a background thread (tests, scripts) embedded it just now.
+            vectors = cache.get_many(model, texts)
+            missing = [i for i, vec in enumerate(vectors) if vec is None]
         usable = [(c, vec) for c, vec in zip(chunks, vectors) if vec is not None]
         if not usable:
             return QUEUED
