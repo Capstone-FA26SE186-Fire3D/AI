@@ -24,17 +24,16 @@ class EmbeddingCache:
         self._lock = threading.Lock()
 
     def get_many(self, model: str, texts: list[str]) -> list[list[float] | None]:
-        out: list[list[float] | None] = []
+        # Hashing and list conversion happen outside the lock; stored arrays are never modified, only replaced.
+        keys = [_key(model, text) for text in texts]
+        found: list[np.ndarray | None] = []
         with self._lock:
-            for text in texts:
-                key = _key(model, text)
+            for key in keys:
                 vec = self._items.get(key)
-                if vec is None:
-                    out.append(None)
-                else:
+                if vec is not None:
                     self._items.move_to_end(key)
-                    out.append(vec.tolist())
-        return out
+                found.append(vec)
+        return [None if vec is None else vec.tolist() for vec in found]
 
     def put_many(self, model: str, texts: list[str], vectors: list[list[float]]) -> None:
         if len(texts) != len(vectors):

@@ -84,15 +84,20 @@ def ground(
     def payload_for(selected):
         return build_payload(req.input.text, selected, extra, titles)
 
-    while chunks and estimate_tokens(system + json.dumps(payload_for(chunks), ensure_ascii=False)) > budget:
+    def estimate(selected):
+        return estimate_tokens(system + json.dumps(payload_for(selected), ensure_ascii=False))
+
+    est_in = estimate(chunks) if chunks else 0
+    while chunks and est_in > budget:
         chunks = chunks[:-1]
+        est_in = estimate(chunks) if chunks else 0
     if not chunks:
         return _terminal(req, "InsufficientEvidence", NO_SOURCE, limitations + ["Hạn mức không đủ để xử lý."], None)
 
     payload = payload_for(chunks)
     max_out = deps.settings.max_output_tokens
     if req.limits.quota_unit == "tokens":
-        est_in = estimate_tokens(system + json.dumps(payload, ensure_ascii=False))
+        # est_in is the estimate of exactly this payload (the last one the loop measured).
         max_out = min(max_out, req.limits.max_units - est_in)
         if max_out < 1:
             return _terminal(req, "InsufficientEvidence", NO_SOURCE, limitations + ["Hạn mức không đủ để xử lý."], None)

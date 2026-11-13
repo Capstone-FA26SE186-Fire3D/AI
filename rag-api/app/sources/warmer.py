@@ -47,6 +47,12 @@ class _Stopped(Exception):
     pass
 
 
+def _bare(refusal: AdapterRefusal) -> AdapterRefusal:
+    """A copy without traceback or cause: a stored failure is shared by request threads for source_retry_seconds, and
+    the original's traceback holds the fetched document and chunks (up to source_max_bytes) and grows on each re-raise."""
+    return AdapterRefusal(refusal.status_code, refusal.code, refusal.message)
+
+
 class RateLimiter:
     """At most per_minute units (items or tokens) in any 60-second window; acquire waits until the batch fits."""
 
@@ -107,13 +113,13 @@ class SourceWarmer:
             try:
                 self._warm(pin)
             except AdapterRefusal as exc:
-                return exc
+                return _bare(exc)
             return READY
         with self._cond:
             failure = self._failed.get(key)
             if failure is not None:
                 if failure[1] > self.clock():
-                    return failure[0]
+                    return _bare(failure[0])
                 del self._failed[key]
             self._queue.setdefault(key, pin)
             self._cond.notify()
@@ -179,7 +185,7 @@ class SourceWarmer:
         except _Stopped:
             return  # stays queued in the index as an incomplete source; resumed on the next start
         except AdapterRefusal as exc:
-            failure = exc
+            failure = _bare(exc)
         except Exception:
             log.exception("source preparation failed", extra={"document_id": pin.document_id})
             failure = refuse("AI_TEMPORARILY_UNAVAILABLE", "Source preparation failed", status=503)
@@ -188,6 +194,10 @@ class SourceWarmer:
             if failure is not None:
                 log.warning("source %s not prepared: %s", pin.document_id, failure.code)
                 self._failed[key] = (failure, self.clock() + self.settings.source_retry_seconds)
+            # Expired failures of keys never asked again (e.g. the source moved to a new hash) would stay forever.
+            now = self.clock()
+            for stale in [k for k, (_, until) in self._failed.items() if until <= now]:
+                del self._failed[stale]
 
     def _sleep(self, seconds: float) -> None:
         if self._stop.wait(max(0.0, seconds)):

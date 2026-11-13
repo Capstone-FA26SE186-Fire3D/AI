@@ -4,6 +4,8 @@ from __future__ import annotations
 import math
 import re
 
+import numpy as np
+
 from app.index.base import ScoredChunk
 from app.sources.chunking import Chunk
 
@@ -34,6 +36,30 @@ def lexical_rank(query: str, texts: dict[str, str]) -> list[str]:
 
 
 def cosine_rank(query: list[float], vectors: dict[str, list[float]]) -> list[str]:
+    """Keys by cosine similarity, highest first; ties keep their order (vectorised; see _cosine_rank_py)."""
+    if not vectors:
+        return []
+    keys = list(vectors)
+    try:
+        m = np.asarray([vectors[k] for k in keys], dtype=np.float64)
+        q = np.asarray(query, dtype=np.float64)
+        if m.ndim != 2 or q.ndim != 1 or m.shape[1] != q.shape[0]:
+            raise ValueError("ragged vectors")
+    except ValueError:
+        return _cosine_rank_py(query, vectors)
+    qn = float(np.sqrt(q @ q))
+    norms = np.sqrt(np.einsum("ij,ij->i", m, m))
+    scores = np.zeros(len(keys))
+    ok = norms > 0
+    if qn > 0:
+        scores[ok] = (m[ok] @ q) / (norms[ok] * qn)
+    # BLAS sums rows in different orders, so identical vectors can differ in the last bit; rounding restores their tie
+    # and the stable sort keeps tied keys in insertion order, as sorted() does in the reference.
+    order = np.argsort(-np.round(scores, 12), kind="stable")
+    return [keys[i] for i in order]
+
+
+def _cosine_rank_py(query: list[float], vectors: dict[str, list[float]]) -> list[str]:
     qn = math.sqrt(sum(x * x for x in query))
 
     def cos(vec: list[float]) -> float:
