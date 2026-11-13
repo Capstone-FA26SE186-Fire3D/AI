@@ -291,3 +291,35 @@ def test_question_embedding_quota_error_is_clean_503_not_unknown(db_url):
 
     status, body = service.submit("organization/answer", req)  # BE retry succeeds
     assert status == 200 and body["status"] == "Answered"
+
+
+def test_rate_limit_before_any_billed_call_is_a_clean_503(db_url):
+    """A gateway 429 produced nothing: the row is deleted and the BE retries, instead of parking it for reconciliation."""
+    from app.llm.base import RateLimited
+
+    def limited(payload):
+        raise RateLimited("busy", 2)
+
+    service, provider = _service(db_url, responder=limited)
+    req = AdapterRequest.model_validate(_body())
+    status, body = service.submit("organization/answer", req)
+    assert status == 503 and body["code"] == "AI_TEMPORARILY_UNAVAILABLE"
+    assert service.store.get(req.request_id) is None
+
+
+def test_rate_limit_after_a_billed_call_stays_unknown(db_url, monkeypatch):
+    """Once a call was billed (usage recorded), a later 429 keeps the unknown outcome so the usage is not lost."""
+    from app.llm.base import LlmUsage, RateLimited
+    from app.requests import service as service_module
+
+    def billed_then_limited(req, prepared, deps):
+        deps.on_usage(LlmUsage(10, 5, "m"))
+        raise RateLimited("busy")
+
+    monkeypatch.setattr(service_module, "run_pipeline", billed_then_limited)
+    service, _ = _service(db_url)
+    req = AdapterRequest.model_validate(_body())
+    status, body = service.submit("organization/answer", req)
+    assert status == 500 and body["code"] == "AI_OUTCOME_UNKNOWN"
+    record = service.store.get(req.request_id)
+    assert record is not None and record.usage_total["input_tokens"] == 10

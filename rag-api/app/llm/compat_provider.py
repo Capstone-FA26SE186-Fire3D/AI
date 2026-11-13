@@ -6,12 +6,25 @@ still validates the fields, so a reply that is valid JSON but the wrong shape en
 """
 import json
 import logging
+import time
 
 from openai import OpenAI, RateLimitError
 
 from app.llm.base import LlmUsage, Provider, ProviderError, RateLimited, embed_query
 
 log = logging.getLogger(__name__)
+
+# Waits (seconds) before the retries of a rate-limited call; a Retry-After header wins, capped at RATE_LIMIT_MAX_WAIT.
+RATE_LIMIT_WAITS = (2.0, 5.0)
+RATE_LIMIT_MAX_WAIT = 10.0
+
+
+def _retry_after(exc: RateLimitError) -> float | None:
+    try:
+        value = exc.response.headers.get("retry-after")
+        return float(value) if value is not None else None
+    except (AttributeError, TypeError, ValueError):
+        return None
 
 SCHEMA_RULE = (
     "\n\nChỉ trả về MỘT đối tượng JSON hợp lệ, không markdown, không giải thích thêm, đúng JSON Schema sau:\n"
@@ -38,12 +51,28 @@ def extract_json(text: str) -> dict:
 class CompatChatProvider:
     name = "openai_compat"
 
-    def __init__(self, api_key: str, base_url: str, chat_model: str, timeout: float, reasoning_effort: str = ""):
+    def __init__(self, api_key: str, base_url: str, chat_model: str, timeout: float, reasoning_effort: str = "",
+                 sleep=time.sleep):
         self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout, max_retries=0)
+        self._sleep = sleep
         self.chat_model = chat_model
         self.reasoning_effort = reasoning_effort
 
     def generate(self, system: str, payload: dict, schema: dict, max_output_tokens: int) -> tuple[dict, LlmUsage]:
+        # A 429 from the gateway is a refusal before generation (nothing billed): wait and try again a couple of times,
+        # since a busy upstream usually clears within seconds. The last 429 still surfaces as RateLimited.
+        for wait in (*RATE_LIMIT_WAITS, None):
+            try:
+                return self._generate_once(system, payload, schema, max_output_tokens)
+            except RateLimited as exc:
+                if wait is None:
+                    raise
+                delay = min(RATE_LIMIT_MAX_WAIT, exc.retry_after) if exc.retry_after else wait
+                log.info("chat gateway rate limited, retrying in %.1fs", delay)
+                self._sleep(delay)
+        raise AssertionError("unreachable")
+
+    def _generate_once(self, system: str, payload: dict, schema: dict, max_output_tokens: int) -> tuple[dict, LlmUsage]:
         extra = {"reasoning_effort": self.reasoning_effort} if self.reasoning_effort else {}
         try:
             response = self.client.chat.completions.create(
@@ -72,7 +101,7 @@ class CompatChatProvider:
                 data = {}
             return data, llm
         except RateLimitError as exc:
-            raise RateLimited("chat gateway rate limited") from exc
+            raise RateLimited("chat gateway rate limited", _retry_after(exc)) from exc
         except (json.JSONDecodeError, IndexError, AttributeError) as exc:
             raise ProviderError("chat gateway returned non-JSON or empty output") from exc
         except Exception as exc:

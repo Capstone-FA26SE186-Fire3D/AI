@@ -89,8 +89,10 @@ def test_rate_limit_is_rate_limited_and_errors_hide_details(monkeypatch):
         raise RateLimitError("slow down", response=httpx.Response(429, request=request), body=None)
 
     stub_client(monkeypatch, limited)
+    waits = []
     with pytest.raises(RateLimited):
-        CompatChatProvider("k", "u", "m", 1).generate("s", {}, {}, 1)
+        CompatChatProvider("k", "u", "m", 1, sleep=waits.append).generate("s", {}, {}, 1)
+    assert waits == [2.0, 5.0], "two retries before giving up"
 
     def boom(**kw):
         raise TimeoutError("sk-secret")
@@ -122,3 +124,20 @@ def test_factory_builds_split_only_when_chat_provider_set():
         get_provider(Settings(llm_provider="fake", **{**gw, "chat_api_key": ""}, _env_file=None))
     with pytest.raises(ProviderError, match="unknown chat provider"):
         get_provider(Settings(llm_provider="fake", chat_provider="other", _env_file=None))
+
+
+def test_rate_limit_retries_then_succeeds_and_honours_retry_after(monkeypatch):
+    request = httpx.Request("POST", "https://gw.example/v1/chat/completions")
+    calls = []
+
+    def flaky(**kw):
+        calls.append(1)
+        if len(calls) == 1:
+            raise RateLimitError("busy", response=httpx.Response(429, request=request, headers={"retry-after": "30"}), body=None)
+        return completion('{"ok": true}')
+
+    stub_client(monkeypatch, flaky)
+    waits = []
+    data, _ = CompatChatProvider("k", "u", "m", 1, sleep=waits.append).generate("s", {}, {}, 1)
+    assert data == {"ok": True} and len(calls) == 2
+    assert waits == [10.0], "Retry-After honoured, capped at 10 s"
