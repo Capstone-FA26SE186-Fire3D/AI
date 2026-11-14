@@ -33,6 +33,18 @@ Tách nhà cung cấp trả lời và embedding (tuỳ chọn): đặt `CHAT_PRO
 system prompt và câu trả lời được đọc JSON có khoan dung (bỏ ``` và chữ thừa); `CHAT_REASONING_EFFORT` (mặc định `low`, để
 trống để không gửi) giảm token "suy nghĩ". Câu hỏi và đoạn tài liệu được gửi tới cổng này.
 
+Chạy không cần Google AI Studio (AI#32): `CHAT_PROVIDER=openai_compat` (vibi) trả lời và `EMBED_PROVIDER=local` embed,
+khi đó `LLM_PROVIDER`/`GEMINI_API_KEY` không được dùng và có thể bỏ. Cổng không áp structured output nên JSON Schema nằm
+trong prompt; câu trả lời thiếu trường bắt buộc, sai kiểu hoặc bị cắt được hỏi lại **một lần** kèm lỗi (token của cả hai
+lượt được tính), lượt hỏi lại lỗi thì giữ câu trả lời đầu. HTTP 429 được thử lại 2 lần (2 s, 5 s; theo `Retry-After`, tối đa
+10 s); vẫn 429 mà chưa có lượt gọi nào tính phí thì trả 503 để BE gửi lại.
+
+Nguồn tri thức (AI#24, AI#27): `sourceUri` phải trỏ tới **tệp tĩnh có bytes cố định** (PDF, TXT, MD). Trang HTML động
+(luatvietnam.vn, nfpa.org…) đổi bytes mỗi lần tải nên luôn `AI_SOURCE_HASH_MISMATCH`; băm theo nội dung chữ cần đổi contract
+với BE. Nguồn lỗi (403, hết giờ, lệch hash) chỉ bị bỏ qua kèm limitation, thông báo lỗi ghi `Source <document_id>: …`; trình
+tải tự xưng `FET3D-SourceFetcher/1.0` và không giả trình duyệt, nên nhà xuất bản chặn client tự động (redcross.org trả 403)
+phải được thay bằng tệp tổ chức tự lưu trữ.
+
 Trả lời chung (tuỳ chọn): `GENERAL_ANSWERS=true` — khi Hỏi đáp không có nguồn đã duyệt phù hợp, AI gọi model thêm một lần
 với prompt giới hạn phạm vi (`app/answering/general.py`): chào hỏi, cách dùng FET3D và kiến thức PCCC phổ thông; câu ngoài chủ đề
 nhận câu từ chối cố định; không nêu số liệu/điều khoản quy chuẩn, không chứng nhận. Safety gate vẫn chạy trước, kết quả vẫn là

@@ -27,7 +27,7 @@ def test_stored_failures_are_bare_copies_and_expire():
     stored = warmer._failed[("d1", "h1")][0]
     assert stored.__traceback__ is None and stored.__cause__ is None
     first, second = warmer.request(pin()), warmer.request(pin())
-    assert (first.status_code, first.code, first.message) == (503, "AI_SOURCE_UNAVAILABLE", "nope")
+    assert (first.status_code, first.code, first.message) == (503, "AI_SOURCE_UNAVAILABLE", "Source d1: nope"), "names the source"
     assert first is not second and first is not stored, "each request gets its own copy"
 
     # A failure of a key that is never asked again is dropped once expired, when another failure is stored.

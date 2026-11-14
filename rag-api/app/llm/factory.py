@@ -4,9 +4,11 @@ from app.llm.base import Provider, ProviderError
 
 def get_provider(settings: Settings) -> Provider:
     """LLM_PROVIDER answers and embeds; CHAT_PROVIDER=openai_compat moves only the answering to a gateway."""
-    base = _base_provider(settings)
-    embedder = _embedder(settings, base)
     chat = settings.chat_provider.lower()
+    # LLM_PROVIDER is only built when it answers or embeds: with a chat gateway and local embeddings no provider key
+    # (e.g. GEMINI_API_KEY) is needed.
+    base = _base_provider(settings) if not chat or not settings.embed_provider else None
+    embedder = _embedder(settings, base)
     if not chat:
         return base if embedder is base else _split(base, embedder)
     if chat != "openai_compat":
@@ -28,7 +30,7 @@ def _split(chat: Provider, embedder: Provider) -> Provider:
     return SplitProvider(chat, embedder)
 
 
-def _embedder(settings: Settings, base: Provider) -> Provider:
+def _embedder(settings: Settings, base: Provider | None) -> Provider:
     """EMBED_PROVIDER=local embeds on this machine; empty keeps LLM_PROVIDER's embeddings."""
     name = settings.embed_provider.lower()
     if not name:

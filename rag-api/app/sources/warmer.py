@@ -185,7 +185,8 @@ class SourceWarmer:
         except _Stopped:
             return  # stays queued in the index as an incomplete source; resumed on the next start
         except AdapterRefusal as exc:
-            failure = _bare(exc)
+            # Name the source: the message reaches the BE (admin view) when no other source can answer.
+            failure = AdapterRefusal(exc.status_code, exc.code, f"Source {pin.document_id}: {exc.message}")
         except Exception:
             log.exception("source preparation failed", extra={"document_id": pin.document_id})
             failure = refuse("AI_TEMPORARILY_UNAVAILABLE", "Source preparation failed", status=503)

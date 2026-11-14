@@ -139,3 +139,24 @@ def test_httpx_invalid_url_is_unavailable():
     with pytest.raises(AdapterRefusal) as e:
         fetch_document("https://x.test/\x00a", SHA, max_bytes=1000, timeout=5, client=_client(_ok))
     assert e.value.code == "AI_SOURCE_UNAVAILABLE"
+
+
+def test_fetch_identifies_itself():
+    """Requests carry the fetcher's own User-Agent (not a library default, not a browser imitation)."""
+    import hashlib
+
+    import httpx
+
+    from app.sources.fetch import fetch_document
+
+    seen = {}
+    body = b"%PDF-1.4 test"
+
+    def handler(request):
+        seen["ua"] = request.headers.get("user-agent", "")
+        return httpx.Response(200, content=body, headers={"content-type": "application/pdf"})
+
+    data, _ = fetch_document("https://example.org/a.pdf", hashlib.sha256(body).hexdigest(), max_bytes=1000, timeout=5,
+                             client=httpx.Client(transport=httpx.MockTransport(handler)))
+    assert data == body
+    assert seen["ua"].startswith("FET3D-SourceFetcher/") and "Mozilla" not in seen["ua"]

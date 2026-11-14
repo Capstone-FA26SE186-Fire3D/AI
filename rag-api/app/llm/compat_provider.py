@@ -8,6 +8,7 @@ import json
 import logging
 import time
 
+from jsonschema import Draft202012Validator
 from openai import OpenAI, RateLimitError
 
 from app.llm.base import LlmUsage, Provider, ProviderError, RateLimited, embed_query
@@ -25,6 +26,29 @@ def _retry_after(exc: RateLimitError) -> float | None:
         return float(value) if value is not None else None
     except (AttributeError, TypeError, ValueError):
         return None
+
+REPAIR_RULE = (
+    "\n\nLần trả lời trước không đúng JSON Schema ở trên. Hãy trả lại MỘT đối tượng JSON đầy đủ, ngắn gọn hơn nếu cần, "
+    "sửa đúng các lỗi sau: "
+)
+
+
+def schema_problem(data: dict, schema: dict) -> str | None:
+    """What makes `data` unusable against `schema`, or None. Extra properties are tolerated (the pipeline ignores them);
+    missing required fields, wrong types and an empty object (non-JSON or cut-off reply) are not."""
+    if not schema:
+        return None
+    if not data:
+        return "câu trả lời rỗng hoặc không phải JSON (có thể bị cắt giữa chừng vì quá dài)"
+    try:
+        validator = Draft202012Validator(schema)
+        errors = [e for e in validator.iter_errors(data) if e.validator != "additionalProperties"]
+    except Exception:  # an unusual schema is not a reason to call the gateway twice
+        return None
+    if not errors:
+        return None
+    return "; ".join(f"{'/'.join(str(p) for p in e.absolute_path) or '(gốc)'}: {e.message}" for e in errors[:3])[:400]
+
 
 SCHEMA_RULE = (
     "\n\nChỉ trả về MỘT đối tượng JSON hợp lệ, không markdown, không giải thích thêm, đúng JSON Schema sau:\n"
@@ -59,6 +83,21 @@ class CompatChatProvider:
         self.reasoning_effort = reasoning_effort
 
     def generate(self, system: str, payload: dict, schema: dict, max_output_tokens: int) -> tuple[dict, LlmUsage]:
+        """One answer; when it misses required fields or has wrong types (or was cut off), asks once more with the
+        problem spelled out. Usage covers both calls; if the second call fails, the first answer and its usage stand."""
+        data, llm = self._generate_retrying(system, payload, schema, max_output_tokens)
+        problem = schema_problem(data, schema)
+        if problem is None:
+            return data, llm
+        log.info("chat gateway output did not match the schema (%s); asking once more", problem[:200])
+        try:
+            fixed, again = self._generate_retrying(system + REPAIR_RULE + problem, payload, schema, max_output_tokens)
+        except ProviderError:
+            return data, llm
+        total = LlmUsage(llm.input_tokens + again.input_tokens, llm.output_tokens + again.output_tokens, again.model_version)
+        return fixed, total
+
+    def _generate_retrying(self, system: str, payload: dict, schema: dict, max_output_tokens: int) -> tuple[dict, LlmUsage]:
         # A 429 from the gateway is a refusal before generation (nothing billed): wait and try again a couple of times,
         # since a busy upstream usually clears within seconds. The last 429 still surfaces as RateLimited.
         for wait in (*RATE_LIMIT_WAITS, None):

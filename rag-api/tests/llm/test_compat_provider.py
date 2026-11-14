@@ -141,3 +141,62 @@ def test_rate_limit_retries_then_succeeds_and_honours_retry_after(monkeypatch):
     data, _ = CompatChatProvider("k", "u", "m", 1, sleep=waits.append).generate("s", {}, {}, 1)
     assert data == {"ok": True} and len(calls) == 2
     assert waits == [10.0], "Retry-After honoured, capped at 10 s"
+
+
+SCHEMA = {
+    "type": "object",
+    "properties": {"status": {"type": "string", "enum": ["answered", "insufficient"]}, "answer": {"type": "string"}},
+    "required": ["status", "answer"],
+    "additionalProperties": False,
+}
+
+
+def test_schema_problem_tolerates_extras_but_not_missing_or_wrong_types():
+    from app.llm.compat_provider import schema_problem
+
+    assert schema_problem({"status": "answered", "answer": "x", "extra": 1}, SCHEMA) is None
+    assert "answer" in schema_problem({"status": "answered"}, SCHEMA)
+    assert "status" in schema_problem({"status": "maybe", "answer": "x"}, SCHEMA)
+    assert "rỗng" in schema_problem({}, SCHEMA)
+    assert schema_problem({}, {}) is None, "no schema, nothing to check"
+
+
+def test_invalid_reply_is_repaired_once_and_usage_covers_both(monkeypatch):
+    replies = [completion('{"status": "answered"}', 10, 4), completion('{"status": "answered", "answer": "Dùng bình CO2."}', 12, 6)]
+    seen = stub_client(monkeypatch, lambda **kw: (seen.setdefault("systems", []).append(kw["messages"][0]["content"]), replies.pop(0))[1])
+    data, usage = CompatChatProvider("k", "u", "m", 1, sleep=lambda s: None).generate("Hệ thống", {}, SCHEMA, 900)
+    assert data == {"status": "answered", "answer": "Dùng bình CO2."}
+    assert usage == LlmUsage(22, 10, "gw-model")
+    assert "không đúng JSON Schema" not in seen["systems"][0]
+    assert "không đúng JSON Schema" in seen["systems"][1] and "answer" in seen["systems"][1]
+
+
+def test_failed_repair_keeps_the_first_answer_and_its_usage(monkeypatch):
+    request = httpx.Request("POST", "https://gw.example/v1/chat/completions")
+    calls = []
+
+    def reply(**kw):
+        calls.append(1)
+        if len(calls) == 1:
+            return completion("not json at all", 10, 4)
+        raise RateLimitError("busy", response=httpx.Response(429, request=request), body=None)
+
+    stub_client(monkeypatch, reply)
+    data, usage = CompatChatProvider("k", "u", "m", 1, sleep=lambda s: None).generate("s", {}, SCHEMA, 900)
+    assert data == {} and usage == LlmUsage(10, 4, "gw-model"), "billed first call is still reported"
+
+
+def test_valid_reply_is_not_called_twice(monkeypatch):
+    calls = []
+    stub_client(monkeypatch, lambda **kw: (calls.append(1), completion('{"status": "insufficient", "answer": ""}'))[1])
+    CompatChatProvider("k", "u", "m", 1).generate("s", {}, SCHEMA, 900)
+    assert len(calls) == 1
+
+
+def test_gateway_with_local_embeddings_needs_no_gemini_key():
+    split = get_provider(Settings(llm_provider="gemini", gemini_api_key="", embed_provider="local", chat_provider="openai_compat",
+                                  chat_base_url="https://gw.example/v1", chat_api_key="k", chat_model="m", _env_file=None))
+    assert split.name == "openai_compat+local"
+    with pytest.raises(ProviderError, match="not configured"):
+        get_provider(Settings(llm_provider="gemini", gemini_api_key="", chat_provider="openai_compat",
+                              chat_base_url="https://gw.example/v1", chat_api_key="k", chat_model="m", _env_file=None))
