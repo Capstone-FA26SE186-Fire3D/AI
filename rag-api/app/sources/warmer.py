@@ -50,7 +50,7 @@ class _Stopped(Exception):
 def _bare(refusal: AdapterRefusal) -> AdapterRefusal:
     """A copy without traceback or cause: a stored failure is shared by request threads for source_retry_seconds, and
     the original's traceback holds the fetched document and chunks (up to source_max_bytes) and grows on each re-raise."""
-    return AdapterRefusal(refusal.status_code, refusal.code, refusal.message)
+    return AdapterRefusal(refusal.status_code, refusal.code, refusal.message, refusal.document_id)
 
 
 class RateLimiter:
@@ -107,7 +107,8 @@ class SourceWarmer:
     def request(self, pin: SourcePin) -> str | AdapterRefusal:
         """READY, QUEUED, or the refusal of a recent failure; never blocks on embedding in background mode."""
         if pin.kind == "KnowledgeSource" and not pin.source_uri:
-            return refuse("AI_SOURCE_UNAVAILABLE", f"Source {pin.document_id} has no source_uri")
+            return refuse("AI_SOURCE_UNAVAILABLE", f"Source {pin.document_id} has no source_uri",
+                          document_id=pin.document_id)
         key = (pin.document_id, pin.content_hash or pin.document_version)
         if not self.background:
             try:
@@ -186,7 +187,8 @@ class SourceWarmer:
             return  # stays queued in the index as an incomplete source; resumed on the next start
         except AdapterRefusal as exc:
             # Name the source: the message reaches the BE (admin view) when no other source can answer.
-            failure = AdapterRefusal(exc.status_code, exc.code, f"Source {pin.document_id}: {exc.message}")
+            failure = AdapterRefusal(exc.status_code, exc.code, f"Source {pin.document_id}: {exc.message}",
+                                     pin.document_id)
         except Exception:
             log.exception("source preparation failed", extra={"document_id": pin.document_id})
             failure = refuse("AI_TEMPORARILY_UNAVAILABLE", "Source preparation failed", status=503)

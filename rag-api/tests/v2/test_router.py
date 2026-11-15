@@ -125,6 +125,7 @@ def test_hash_mismatch_refusal_deletes_row(tmp_path):
     resp = env.post(body)
     assert resp.status_code == 422
     assert resp.json()["code"] == "AI_SOURCE_HASH_MISMATCH"
+    assert resp.json()["document_id"] == "doc-1", "the refusal names the source that caused it"
     assert env.client.get("/v2/requests/req-1").status_code == 404
     assert env.provider.calls == []
 

@@ -25,7 +25,10 @@ def error(code: str, message: str) -> dict:
 
 
 def _refusal(exc: AdapterRefusal) -> tuple[int, dict]:
-    return exc.status_code, error(exc.code, exc.message)
+    body = error(exc.code, exc.message)
+    if exc.document_id:
+        body["document_id"] = exc.document_id
+    return exc.status_code, body
 
 
 def _unavailable() -> tuple[int, dict]:

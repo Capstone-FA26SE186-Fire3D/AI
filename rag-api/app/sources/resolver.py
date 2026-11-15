@@ -83,7 +83,8 @@ class SourceResolver:
                     )
                 continue
             if not pin.content_hash:
-                raise refuse("AI_SOURCE_UNAVAILABLE", f"Source {pin.document_id} has no content hash to verify")
+                raise refuse("AI_SOURCE_UNAVAILABLE", f"Source {pin.document_id} has no content hash to verify",
+                             document_id=pin.document_id)
             state = (
                 "ready" if self.index.has_current(pin.document_id, pin.content_hash, self.provider.embedding_model)
                 else self.warmer.request(pin)
@@ -104,7 +105,10 @@ class SourceResolver:
                     f"{len(preparing)} source(s) are being prepared; retry in a few minutes",
                     status=503,
                 )
-            raise failed[0][1]
+            pin, refusal = failed[0]
+            if refusal.document_id is None:
+                refusal.document_id = pin.document_id
+            raise refusal
         prepared.limitations.extend(f"Nguồn {_name(pin)} đang được chuẩn bị, chưa dùng cho câu hỏi này." for pin in preparing)
         prepared.limitations.extend(f"Nguồn {_name(pin)} hiện không dùng được." for pin, _ in failed)
         return prepared

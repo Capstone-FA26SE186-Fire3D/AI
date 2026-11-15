@@ -33,3 +33,7 @@ DATABASE_URL=postgresql://<ai_login>:<mat_khau>@<host>:5432/postgres
 
 Code tự chuyển sang driver `postgresql+psycopg` và dùng schema `ai_service`.
 Dùng `sqlite:///duong/dan.db` cho dev/test (bảng tự tạo, không có schema).
+
+## Cột vector và chỉ mục (hiện trạng 15/11/2026)
+
+Cột `embedding` để kiểu `vector` không khai số chiều; số chiều lưu theo từng dòng và mỗi lần tìm chỉ lấy các dòng có đúng `embedding_model` đang dùng. Tìm kiếm quét chính xác (cosine) trong các nguồn đã được ghim cho câu hỏi, không dùng chỉ mục gần đúng (HNSW/IVFFlat). Lý do giữ như vậy: kho tri thức chỉ vài nghìn đoạn nên quét chính xác đủ nhanh, và khai cứng `vector(384)` kèm chỉ mục sẽ chặn việc đổi mô hình embedding nếu không có migration ở BE. `contracts/KnowledgeChunks.sql` lấy từ BE, không sửa tay ở đây.
