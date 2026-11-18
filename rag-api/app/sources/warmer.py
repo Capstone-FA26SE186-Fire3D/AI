@@ -179,7 +179,8 @@ class SourceWarmer:
             self.run_one(key, pin)
 
     def run_one(self, key: tuple[str, str], pin: SourcePin) -> None:
-        """Embeds one queued source and settles it: done, or failed until source_retry_seconds pass."""
+        """Embeds one queued source and settles it: done, or failed until source_retry_seconds pass (a hash mismatch
+        waits source_mismatch_retry_seconds: the same bytes would mismatch again)."""
         failure: AdapterRefusal | None = None
         try:
             self._warm(pin)
@@ -196,7 +197,9 @@ class SourceWarmer:
             self._queue.pop(key, None)
             if failure is not None:
                 log.warning("source %s not prepared: %s", pin.document_id, failure.code)
-                self._failed[key] = (failure, self.clock() + self.settings.source_retry_seconds)
+                wait = (self.settings.source_mismatch_retry_seconds if failure.code == "AI_SOURCE_HASH_MISMATCH"
+                        else self.settings.source_retry_seconds)
+                self._failed[key] = (failure, self.clock() + wait)
             # Expired failures of keys never asked again (e.g. the source moved to a new hash) would stay forever.
             now = self.clock()
             for stale in [k for k, (_, until) in self._failed.items() if until <= now]:

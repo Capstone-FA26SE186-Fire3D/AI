@@ -1,5 +1,31 @@
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Iterator, Protocol
+
+# Per-call reasoning effort for chat gateways that support it (None: the provider's own setting). Set by the answering
+# pipeline around one generate() call, so the Provider interface stays the same for every provider.
+_reasoning_effort: ContextVar[str | None] = ContextVar("fire3d_reasoning_effort", default=None)
+
+
+@contextmanager
+def reasoning_effort(value: str | None) -> Iterator[None]:
+    token = _reasoning_effort.set(value)
+    try:
+        yield
+    finally:
+        _reasoning_effort.reset(token)
+
+
+def current_reasoning_effort() -> str | None:
+    return _reasoning_effort.get()
+
+
+def answer_reasoning(operation: str, settings: object) -> str | None:
+    """CHAT_ANSWER_REASONING_EFFORT for answers; None (the provider's setting) for drafts or when it is unset."""
+    if operation == "ScenarioDraft":
+        return None
+    return getattr(settings, "chat_answer_reasoning_effort", None)
 
 
 @dataclass

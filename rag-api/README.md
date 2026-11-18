@@ -31,7 +31,9 @@ Tách nhà cung cấp trả lời và embedding (tuỳ chọn): đặt `CHAT_PRO
 `https://gateway.example/v1`), `CHAT_API_KEY`, `CHAT_MODEL` thì câu trả lời đi qua cổng chat completions đó, còn
 `LLM_PROVIDER` vẫn embed (vector cũ không phải tạo lại). Nhiều cổng bỏ qua `response_format`, nên JSON Schema được đưa vào
 system prompt và câu trả lời được đọc JSON có khoan dung (bỏ ``` và chữ thừa); `CHAT_REASONING_EFFORT` (mặc định `low`, để
-trống để không gửi) giảm token "suy nghĩ". Câu hỏi và đoạn tài liệu được gửi tới cổng này.
+trống để không gửi) giảm token "suy nghĩ". Câu hỏi và đoạn tài liệu được gửi tới cổng này. `CHAT_ANSWER_REASONING_EFFORT` (tuỳ chọn) đặt riêng mức này cho câu trả lời
+(Answer, TraineeAnswer, trả lời chung), bản nháp kịch bản vẫn dùng `CHAT_REASONING_EFFORT`; đo 18/11/2026 trên vibi
+`gemini-3.6-flash`, độ trễ của cổng (12–45 s) dao động nhiều hơn mức chênh do `none`/`minimal`/`low`, nên chưa bật.
 
 Chạy không cần Google AI Studio (AI#32): `CHAT_PROVIDER=openai_compat` (vibi) trả lời và `EMBED_PROVIDER=local` embed,
 khi đó `LLM_PROVIDER`/`GEMINI_API_KEY` không được dùng và có thể bỏ. Cổng không áp structured output nên JSON Schema nằm
@@ -43,7 +45,8 @@ Nguồn tri thức (AI#24, AI#27): `sourceUri` phải trỏ tới **tệp tĩnh 
 (luatvietnam.vn, nfpa.org…) đổi bytes mỗi lần tải nên luôn `AI_SOURCE_HASH_MISMATCH`; băm theo nội dung chữ cần đổi contract
 với BE. Nguồn lỗi (403, hết giờ, lệch hash) chỉ bị bỏ qua kèm limitation, thông báo lỗi ghi `Source <document_id>: …`; trình
 tải tự xưng `FET3D-SourceFetcher/1.0` và không giả trình duyệt, nên nhà xuất bản chặn client tự động (redcross.org trả 403)
-phải được thay bằng tệp tổ chức tự lưu trữ.
+phải được thay bằng tệp tổ chức tự lưu trữ. Nguồn lệch hash chờ `SOURCE_MISMATCH_RETRY_SECONDS` (mặc định 6 giờ) mới tải
+lại, thay vì `SOURCE_RETRY_SECONDS`, vì tải lại cùng trang động vẫn lệch.
 
 Trả lời chung (tuỳ chọn): `GENERAL_ANSWERS=true` — khi Hỏi đáp không có nguồn đã duyệt phù hợp, AI gọi model thêm một lần
 với prompt giới hạn phạm vi (`app/answering/general.py`): chào hỏi, cách dùng FET3D và kiến thức PCCC phổ thông; câu ngoài chủ đề

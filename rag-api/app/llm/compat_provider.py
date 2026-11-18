@@ -11,7 +11,7 @@ import time
 from jsonschema import Draft202012Validator
 from openai import OpenAI, RateLimitError
 
-from app.llm.base import LlmUsage, Provider, ProviderError, RateLimited, embed_query
+from app.llm.base import LlmUsage, Provider, ProviderError, RateLimited, current_reasoning_effort, embed_query
 
 log = logging.getLogger(__name__)
 
@@ -112,7 +112,9 @@ class CompatChatProvider:
         raise AssertionError("unreachable")
 
     def _generate_once(self, system: str, payload: dict, schema: dict, max_output_tokens: int) -> tuple[dict, LlmUsage]:
-        extra = {"reasoning_effort": self.reasoning_effort} if self.reasoning_effort else {}
+        override = current_reasoning_effort()
+        effort = self.reasoning_effort if override is None else override
+        extra = {"reasoning_effort": effort} if effort else {}
         try:
             response = self.client.chat.completions.create(
                 model=self.chat_model,

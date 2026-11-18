@@ -13,7 +13,7 @@ import json
 from app.answering.safety import check_output
 from app.answering.usage import estimate_tokens
 from app.answering.validate import to_plain_text
-from app.llm.base import LlmUsage
+from app.llm.base import LlmUsage, answer_reasoning, reasoning_effort
 from app.v2.schemas import AdapterRequest
 
 GENERAL_NOTE = "Câu trả lời chung, không dựa trên tài liệu đã duyệt của hệ thống; hãy đối chiếu với tài liệu chính thức."
@@ -43,7 +43,9 @@ GENERAL_PROMPT = (
     "Nếu câu hỏi không thuộc các chủ đề trên (ví dụ lập trình, bài tập, chính trị, giải trí, y tế, tài chính) "
     "thì đặt status off_topic và để answer rỗng. "
     "Nếu người hỏi đang gặp cháy thật, khuyên gọi ngay 114 và thoát ra nơi an toàn. "
-    "Trả lời ngắn gọn bằng tiếng Việt, văn bản thuần, không Markdown; nhắc rằng đây là thông tin tham khảo chung khi phù hợp. "
+    "Trả lời thân thiện, tự nhiên bằng tiếng Việt, xưng hô với người hỏi là \"bạn\": câu đầu đi thẳng vào ý; "
+    "nhiều bước thì mỗi bước một dòng, đánh số 1., 2., 3.; văn bản thuần, không Markdown; "
+    "với câu hỏi kiến thức, kết thúc bằng một câu ngắn rằng đây là thông tin tham khảo chung (không cần với lời chào). "
     "Chỉ trả về JSON đúng theo schema đã cho."
 )
 
@@ -62,7 +64,8 @@ def general_answer(
         max_out = min(max_out, req.limits.max_units - spent - est_in)
         if max_out < 1:
             return None
-    raw, llm = provider.generate(GENERAL_PROMPT, payload, GENERAL_SCHEMA, max_out)
+    with reasoning_effort(answer_reasoning(req.operation, settings)):
+        raw, llm = provider.generate(GENERAL_PROMPT, payload, GENERAL_SCHEMA, max_out)
     if on_usage is not None:
         on_usage(llm)
     total = llm if used is None else LlmUsage(

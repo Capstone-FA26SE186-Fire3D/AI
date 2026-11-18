@@ -200,3 +200,27 @@ def test_gateway_with_local_embeddings_needs_no_gemini_key():
     with pytest.raises(ProviderError, match="not configured"):
         get_provider(Settings(llm_provider="gemini", gemini_api_key="", chat_provider="openai_compat",
                               chat_base_url="https://gw.example/v1", chat_api_key="k", chat_model="m", _env_file=None))
+
+
+def test_reasoning_effort_can_be_overridden_per_call(monkeypatch):
+    from app.llm.base import reasoning_effort
+
+    seen = stub_client(monkeypatch, completion("{}"))
+    p = CompatChatProvider("k", "u", "m", 1, "low")
+    with reasoning_effort("none"):
+        p.generate("s", {}, {}, 1)
+    assert seen["create"]["reasoning_effort"] == "none"
+    p.generate("s", {}, {}, 1)
+    assert seen["create"]["reasoning_effort"] == "low", "the override ends with the block"
+    with reasoning_effort(""):
+        p.generate("s", {}, {}, 1)
+    assert "reasoning_effort" not in seen["create"], "an empty override sends none"
+
+
+def test_answers_use_the_answer_effort_and_drafts_keep_the_default():
+    from app.llm.base import answer_reasoning
+
+    s = Settings(chat_answer_reasoning_effort="none", _env_file=None)
+    assert answer_reasoning("Answer", s) == "none" and answer_reasoning("TraineeAnswer", s) == "none"
+    assert answer_reasoning("ScenarioDraft", s) is None
+    assert answer_reasoning("Answer", Settings(_env_file=None)) is None

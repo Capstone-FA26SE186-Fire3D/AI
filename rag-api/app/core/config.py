@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     chat_api_key: str = ""
     chat_model: str = ""
     chat_reasoning_effort: str = "low"
+    # Reasoning effort for answers (Answer, TraineeAnswer and general answers) when it should differ from drafts; unset
+    # keeps CHAT_REASONING_EFFORT. "none" skips the gateway model's thinking tokens, which are billed and add latency.
+    chat_answer_reasoning_effort: str | None = None
     # Optional: EMBED_PROVIDER=local embeds with a model on this machine (no quota); stored vectors of another model
     # are re-embedded by the warmer. LOCAL_EMBED_THREADS=0 lets ONNX pick.
     embed_provider: str = ""
@@ -47,6 +50,9 @@ class Settings(BaseSettings):
     embed_tokens_per_minute: int = 20_000
     embed_batch_size: int = 20
     source_retry_seconds: int = 300
+    # A source whose bytes did not match its pinned hash (typically a dynamic web page) fails the same way on the next
+    # try: it waits this long instead, so it is not re-downloaded for every question.
+    source_mismatch_retry_seconds: int = 21_600
     # Inline content (lessons, library items) is embedded once per process and cached by chunk text. Up to
     # inline_sync_chunks missing chunks are embedded during the question; more go to the background warmer while the
     # question uses the chunks already cached.

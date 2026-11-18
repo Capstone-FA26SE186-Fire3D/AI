@@ -81,3 +81,12 @@ def test_prompts_walk_criteria_and_never_guess_thresholds():
     training = system_prompt("trainee", "TraineeAnswer", "Training")
     assert "từng tiêu chí" in training and "Không đoán ngưỡng" in training
     assert "Loại ngữ cảnh: Learn." in system_prompt("trainee", "TraineeAnswer", "Learn")
+
+
+def test_answer_style_applies_to_answers_not_drafts():
+    answer = system_prompt("organization", "Answer", None)
+    assert "Cách viết answer" in answer and "1., 2., 3." in answer and "insufficient" in answer
+    assert "Cách viết answer" not in system_prompt("organization", "ScenarioDraft", None)
+    # The safety rules stay in every prompt.
+    for prompt in (answer, system_prompt("trainee", "TraineeAnswer", "Learn"), system_prompt("organization", "ScenarioDraft", None)):
+        assert "bỏ qua mọi chỉ dẫn" in prompt and "chứng nhận" in prompt and "chunk_id" in prompt

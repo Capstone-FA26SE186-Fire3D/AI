@@ -13,7 +13,7 @@ from app.answering.usage import context_budget, estimate_tokens, to_usage
 from app.answering.validate import build_citations, clean_list, to_plain_text
 from app.core.config import Settings
 from app.index.base import KnowledgeIndex
-from app.llm.base import LlmUsage, Provider
+from app.llm.base import LlmUsage, Provider, answer_reasoning, reasoning_effort
 from app.sources.resolver import PreparedSources
 from app.v2.schemas import AdapterRequest, AdapterResponse
 
@@ -102,7 +102,8 @@ def ground(
         if max_out < 1:
             return _terminal(req, "InsufficientEvidence", NO_SOURCE, limitations + ["Hạn mức không đủ để xử lý."], None)
 
-    raw, llm = deps.provider.generate(system, payload, schema, max_out)
+    with reasoning_effort(answer_reasoning(req.operation, deps.settings)):
+        raw, llm = deps.provider.generate(system, payload, schema, max_out)
     if deps.on_usage is not None:
         deps.on_usage(llm)
     return Grounded(raw, llm, chunks, limitations, prepared.pins)

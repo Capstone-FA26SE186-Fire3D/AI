@@ -162,7 +162,7 @@ def test_interrupted_embedding_resumes_with_missing_chunks_only():
 
 def test_failure_is_remembered_then_retried():
     other = b"noi dung khac"
-    warmer, index, provider, clock = _background(other, source_retry_seconds=300)
+    warmer, index, provider, clock = _background(other, source_retry_seconds=300, source_mismatch_retry_seconds=3600)
     resolver = SourceResolver(index, provider, warmer.settings, warmer=warmer)
     pin = _pin(LONG)  # hash of LONG, server returns other bytes
     warmer.request(pin)
@@ -170,6 +170,20 @@ def test_failure_is_remembered_then_retried():
     with pytest.raises(AdapterRefusal) as exc:
         resolver.prepare([pin])
     assert exc.value.code == "AI_SOURCE_HASH_MISMATCH"
+    # A hash mismatch (a dynamic page) would mismatch again: it is not re-downloaded after the normal retry delay.
+    clock.now = 301
+    assert warmer.request(pin).code == "AI_SOURCE_HASH_MISMATCH"
+    clock.now = 3601
+    assert warmer.request(pin) == QUEUED
+
+
+def test_other_failures_retry_after_the_normal_delay():
+    warmer, index, provider, clock = _background(LONG, source_retry_seconds=300, source_mismatch_retry_seconds=3600)
+    warmer._warm = lambda pin: (_ for _ in ()).throw(RuntimeError("boom"))  # a generic preparation failure
+    pin = _pin(LONG)
+    warmer.request(pin)
+    drain(warmer)
+    assert warmer.request(pin).code == "AI_TEMPORARILY_UNAVAILABLE"
     clock.now = 301
     assert warmer.request(pin) == QUEUED
 
