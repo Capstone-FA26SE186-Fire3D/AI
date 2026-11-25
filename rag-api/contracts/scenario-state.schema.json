@@ -27,6 +27,18 @@
     },
     "learningObjectives": { "type": "array", "maxItems": 50, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 1000 }, "description": "Required and nonempty for snapshot." },
     "learnerInstructions": { "type": "string", "minLength": 1, "maxLength": 10000, "description": "Required for snapshot." },
+    "audience": { "enum": ["Evacuee", "Communications", "EvacuationGuide", "FirstResponse"], "description": "BE#215, Mẫu PC06 mục IV.1 b): who trains on this situation (người thoát nạn, thông tin liên lạc, hướng dẫn thoát nạn, chữa cháy ban đầu). Required for validate and snapshot of a draft on a fire infrastructure." },
+    "workingHours": { "enum": ["InHours", "OffHours"], "description": "BE#215: the situation happens in or outside working hours (chú thích (3) Mẫu PC06). Required for validate and snapshot of a draft on a fire infrastructure." },
+    "assumption": {
+      "description": "BE#215, Mẫu PC06 mục IV.1 a): giả định tình huống. Required (all four fields) for validate and snapshot of a draft on a fire infrastructure.",
+      "type": "object", "additionalProperties": false, "required": ["time", "location", "cause", "peoplePresent"],
+      "properties": {
+        "time": { "type": "string", "minLength": 1, "maxLength": 100, "description": "Giờ xảy ra hoặc phát hiện cháy, e.g. 14:30 or 'ban đêm'." },
+        "location": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "cause": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "peoplePresent": { "type": "integer", "minimum": 0, "maximum": 100000 }
+      }
+    },
     "libraryRefs": {
       "description": "Optional provenance: Library versions the author copied from. Never changes runtime behaviour.",
       "type": "array", "maxItems": 50,
@@ -62,6 +74,25 @@
             }
           }
         }
+      }
+    },
+    "wind": {
+      "description": "Optional scenario-wide wind (game model, not CFD; BE#144). Absent: no wind. When present every field is required; no field is defaulted.",
+      "type": "object", "additionalProperties": false, "required": ["directionDegrees", "strength"],
+      "properties": {
+        "directionDegrees": { "type": "number", "minimum": 0, "exclusiveMaximum": 360, "description": "Direction the wind blows towards. GLB vector (sin θ, 0, cos θ): 0 = +Z, 90 = +X. Unity mirrors X when loading (ContractFrame)." },
+        "strength": { "type": "number", "minimum": 0, "maximum": 1, "description": "Normalised strength: 0 calm, 1 the strongest wind the runtime models." }
+      }
+    },
+    "routingConfig": {
+      "description": "Optional A* edge weights (BE#144, Docs technology: cost = distance + hazardExposure*wh + congestion*wc + portalPenalty*wp + blocked*wb). Absent: the runtime's published defaults for runtimeVersion. When present every weight is required; no weight is defaulted.",
+      "type": "object", "additionalProperties": false,
+      "required": ["hazardExposureWeight", "congestionWeight", "portalPenaltyWeight", "blockedWeight"],
+      "properties": {
+        "hazardExposureWeight": { "type": "number", "minimum": 0, "maximum": 1000, "description": "wh" },
+        "congestionWeight": { "type": "number", "minimum": 0, "maximum": 1000, "description": "wc" },
+        "portalPenaltyWeight": { "type": "number", "minimum": 0, "maximum": 1000, "description": "wp" },
+        "blockedWeight": { "type": "number", "minimum": 0, "maximum": 1000, "description": "wb" }
       }
     },
     "objects": {
