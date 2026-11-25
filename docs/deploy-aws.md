@@ -144,7 +144,7 @@ WHERE status = 'Completed' AND completed_at < now() - interval '90 days';
 
 CI (`.github/workflows/ci.yml`) chỉ chạy test, **không deploy**. Deploy chạy bằng tay từ máy của người giữ khoá SSH, dùng hai script trong `deploy/aws/`:
 
-1. `git pull` repo AI. Đặt env production `rag-api-server.env` ở **thư mục chứa repo**, ví dụ `C:\do anag-api-server.env` khi repo ở `C:\do ani`. Để chỗ khác thì đặt biến `FIRE3D_AI_ENV`. Khoá SSH mặc định là `%USERPROFILE%\Downloadsire3d-be.pem`, đổi bằng `FIRE3D_SSH_KEY`.
+1. `git pull` repo AI. Đặt env production `rag-api-server.env` ở **thư mục chứa repo**, ví dụ `C:\do an\rag-api-server.env` khi repo ở `C:\do an\ai`. Để chỗ khác thì đặt biến `FIRE3D_AI_ENV`. Khoá SSH mặc định là `%USERPROFILE%\Downloads\fire3d-be.pem`, đổi bằng `FIRE3D_SSH_KEY`.
 2. Chạy:
 
    ```powershell
