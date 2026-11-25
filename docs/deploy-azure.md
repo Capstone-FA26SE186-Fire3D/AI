@@ -1,6 +1,6 @@
 # Triển khai AI service lên Azure
 
-> **Lưu ý 15/11/2026:** từ 10/11/2026 service AI chạy trên AWS EC2 cùng máy chủ BE, không còn trên Azure. Phần dưới đây là thiết kế cũ cho Azure, giữ lại để tham khảo các thông số (probe, timeout, biến môi trường) vẫn còn đúng. Cách chạy tiến trình, TLS, luật mạng và lịch dọn dữ liệu trên EC2 chưa được ghi lại trong repo này.
+> **Lưu ý:** từ 10/11/2026 service AI chạy trên một máy AWS EC2 riêng (không chung máy với BE), không còn trên Azure. Cách triển khai đang dùng: [deploy-aws.md](deploy-aws.md). Phần dưới đây là thiết kế cũ cho Azure, giữ lại để tham khảo các thông số (probe, timeout, biến môi trường, checklist nghiệm thu) vẫn còn đúng.
 
 Hướng dẫn này mô tả cách triển khai `rag-api` (FastAPI) cho môi trường thật. Đây là hướng dẫn thiết kế, chưa phải hạ tầng đã tạo hay đã nghiệm thu.
 

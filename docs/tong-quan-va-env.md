@@ -4,8 +4,8 @@ Repo `ai` gồm hai dịch vụ Python chạy phía sau backend .NET (BE): **rag
 tạo bản nháp kịch bản; **ifc-worker** chuyển file IFC thành mô hình 3D và metadata. Client (web, mobile) không gọi thẳng
 hai dịch vụ này; mọi yêu cầu đi qua BE.
 
-Tài liệu liên quan: [huong-dan-ai.md](huong-dan-ai.md) (chạy và thử từng bước), [deploy-azure.md](deploy-azure.md)
-(triển khai Azure), `rag-api/db/README.md` (cơ sở dữ liệu).
+Tài liệu liên quan: [huong-dan-ai.md](huong-dan-ai.md) (chạy và thử từng bước), [deploy-aws.md](deploy-aws.md)
+(triển khai trên AWS EC2, đang chạy), `rag-api/db/README.md` (cơ sở dữ liệu).
 
 ## 1. AI dùng để làm gì
 
@@ -26,7 +26,7 @@ Câu hỏi về chứng nhận hay sự cố thật bị safety gate chặn (`Re
 Web / Mobile
      │  HTTPS + JWT
      ▼
-BE (.NET, Azure App Service) ── PostgreSQL (Supabase): dữ liệu nghiệp vụ, quota, knowledge_chunks (pgvector)
+BE (.NET, Docker trên AWS EC2) ── PostgreSQL (Supabase): dữ liệu nghiệp vụ, quota, knowledge_chunks (pgvector)
      │  Bearer AI_API_KEY + X-Request-Id                ▲
      ▼                                                  │ đọc/ghi chunk (login riêng của AI)
 rag-api (FastAPI) ──────────────────────────────────────┘
@@ -81,14 +81,14 @@ của file, `sourceUri` là link https công khai) rồi `approve`. Tài liệu 
 
 ## 3. Biến môi trường
 
-Chạy trên máy thì đặt trong `rag-api/.env` và `ifc-worker/.env` (đã nằm trong `.gitignore`). Trên Azure thì đặt trong
-App Service → Settings → Environment variables, không dùng file `.env`. Không ghi giá trị bí mật vào tài liệu hay repo.
+Chạy trên máy thì đặt trong `rag-api/.env` và `ifc-worker/.env` (đã nằm trong `.gitignore`). Trên máy chủ AWS thì đặt trong
+`/opt/fire3d-ai/.env` (chép từ `rag-api-server.env` khi deploy, xem `deploy-aws.md` mục 4). Không ghi giá trị bí mật vào tài liệu hay repo.
 
 ### rag-api
 
 | Biến | Bắt buộc | Trạng thái (27/10/2026) | Lấy ở đâu |
 |---|---|---|---|
-| `ENVIRONMENT` | Có | Local: `development` | `production` khi lên Azure |
+| `ENVIRONMENT` | Có | Local: `development` | `production` trên máy chủ |
 | `AI_API_KEY` | Production | Local: đã sinh | Tự sinh ngẫu nhiên; trùng `OrganizationAi__ApiKey` của BE |
 | `LLM_PROVIDER` | Có | `gemini` | `fake` để test không tốn tiền |
 | `GEMINI_API_KEY` | Khi dùng Gemini | Đã có, **cần đổi** (đã lộ) | aistudio.google.com → Get API key |
@@ -128,16 +128,17 @@ Chạy worker phải kèm `--env-file .env` để `boto3` đọc được key AW
 ## 4. Còn thiếu gì để lên production
 
 - [ ] Đổi các key đã lộ: Gemini, `WORKER_KEY`, key AWS. Tạo IAM user riêng cho worker.
-- [ ] Supabase: bật extension `vector`; kiểm tra `knowledge_chunks`; chạy `001_ai_service.sql`; tạo login `ai_login`
-      với `GRANT fet3d_ai_service, fet3d_ai_indexer` và `search_path = public, extensions`.
-- [ ] Chuỗi kết nối production cho `DATABASE_URL` / `KNOWLEDGE_DATABASE_URL`.
-- [ ] Quyền Contributor trên resource group Azure; tạo Web App Python 3.12 Linux trong plan của `fire3d-api`.
-- [ ] Workflow deploy cho repo `ai` (chưa có) hoặc deploy zip thủ công.
-- [ ] Đặt biến môi trường cho app AI và các biến `OrganizationAi__*` của BE; kiểm tra `/ready` của AI và mục
-      `organizationAi` trong `/health/ready` của BE.
+- [x] Supabase (project mới từ 23/11/2026): extension `vector`, `knowledge_chunks`, `001_ai_service.sql`, login `ai_login`
+      với `GRANT fet3d_ai_service, fet3d_ai_indexer`, `GRANT USAGE ON SCHEMA extensions` và `search_path = public, extensions`.
+- [x] Chuỗi kết nối production cho `DATABASE_URL` / `KNOWLEDGE_DATABASE_URL`.
+- [x] Máy chủ: AWS EC2 riêng cho AI, systemd + Caddy ([deploy-aws.md](deploy-aws.md)); không còn dùng Azure.
+- [x] Deploy thủ công bằng `deploy/aws/update-ai.ps1` (CI không có bước deploy).
+- [x] Biến môi trường của AI và `OrganizationAi__*` của BE; `/ready` của AI và mục `organizationAi` trong `/health/ready`
+      của BE đều đạt (25/11/2026).
 - [ ] BE: merge PR #177 sau khi chạy test Postgres; chạy migration `20261027090000_AddAiPolicyEndAndUnits`.
 - [ ] Tạo AI policy cho `Answer`, `ScenarioDraft`, `TraineeAnswer` (đơn vị `tokens` hoặc `requests`); chuyển gói billing
       đang dùng `credit`; cấp quota cho tổ chức.
 - [ ] Danh sách tài liệu PCCC có link https công khai; đăng ký và approve làm knowledge source.
-- [ ] Lịch chạy housekeeping hằng ngày và dọn `ai_service.requests` quá 90 ngày.
-- [ ] Nghiệm thu E2E theo checklist cuối [deploy-azure.md](deploy-azure.md).
+- [x] Lịch chạy housekeeping hằng ngày (timer 03:00 UTC).
+- [ ] Dọn `ai_service.requests` quá 90 ngày (chưa có lịch, xem `deploy-aws.md` mục 6).
+- [ ] Nghiệm thu E2E theo checklist cuối [deploy-azure.md](deploy-azure.md) (các mục vẫn đúng với AWS).

@@ -103,4 +103,4 @@ Các route cũ `/documents`, `/chat`, `/pccc/*` và CORS mặc định TẮT. Đ
 
 Test pgvector chỉ chạy khi đặt `FIRE3D_AI_TEST_PG_DSN` tới một PostgreSQL có pgvector; nếu không, chúng tự bỏ qua, kể cả khi máy có Docker; chỉ đặt `FIRE3D_AI_TEST_PG_DOCKER=1` khi muốn tự khởi chạy container pgvector. Eval `fake` chạy hoàn toàn offline (xem `evals/README.md`); `--provider openai|gemini` cần khoá API tương ứng (`OPENAI_API_KEY`, `GEMINI_API_KEY`).
 
-Biến môi trường chính: xem mục "Cấu hình v2" và `.env.example`. Dự án không dùng Docker; hướng dẫn triển khai Azure App Service ở `../docs/deploy-azure.md`.
+Biến môi trường chính: xem mục "Cấu hình v2" và `.env.example`. Dự án không dùng Docker; hướng dẫn triển khai (AWS EC2, đang chạy) ở `../docs/deploy-aws.md`.
