@@ -7,6 +7,21 @@ on:
 jobs:
   rag-api:
     runs-on: ubuntu-latest
+    # Throwaway PostgreSQL + pgvector for the vector-store and request-store tests (AI#33); never a real database.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      FIRE3D_AI_TEST_PG_DSN: postgresql://postgres:test@127.0.0.1:5432/postgres
     defaults:
       run:
         working-directory: rag-api
@@ -18,8 +33,8 @@ jobs:
           cache: pip
           cache-dependency-path: rag-api/requirements.txt
       - run: pip install -r requirements.txt
-      # Test pgvector tự bỏ qua vì FIRE3D_AI_TEST_PG_DSN không được đặt (Docker chỉ chạy khi opt-in FIRE3D_AI_TEST_PG_DOCKER=1).
-      - run: python -m pytest -q
+      # FIRE3D_AI_TEST_PG_DSN trỏ vào service postgres ở trên, nên test pgvector chạy thật thay vì bị bỏ qua.
+      - run: python -m pytest -q -rs
       - run: python -m evals.run_eval --provider fake --out evals/reports/ci
 
   ifc-worker:
