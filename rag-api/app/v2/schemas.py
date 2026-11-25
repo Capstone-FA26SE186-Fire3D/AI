@@ -63,6 +63,35 @@ class BimGeometry(_Model):
     schema_version: str = Field(alias="schemaVersion")
 
 
+class InfraCapability(_Model):
+    id: str
+    version: str | None = None
+
+
+class InfraPlacement(_Model):
+    floor_id: str = Field(alias="floorId")
+    position: dict | None = None
+
+
+class InfraItem(_Model):
+    """One fixed item of an Approved fire infrastructure (exit, assembly point, fixed equipment, water source)."""
+
+    id: str | None = None
+    kind: str
+    label: str | None = None
+    anchor_id: str | None = Field(default=None, alias="anchorId")
+    capability: InfraCapability | None = None
+    placement: InfraPlacement | None = None
+
+
+class BimInfrastructure(_Model):
+    """The locked fire infrastructure a situation is authored on (BE#213, BE#231): its items are not scenario objects."""
+
+    id: str
+    version: int | str | None = None
+    items: list[InfraItem] = Field(default_factory=list)
+
+
 class BimPin(_Model):
     revision_id: str = Field(alias="revisionId")
     geometry: BimGeometry
@@ -70,6 +99,8 @@ class BimPin(_Model):
     anchors: list[BimAnchorPin]
     quality_flags: list[QualityFlag] = Field(default_factory=list, alias="qualityFlags")
     runtime: RuntimePin | None = None
+    # Present when the draft is a situation on a locked infrastructure; absent keeps the pre-PC06 behaviour.
+    infrastructure: BimInfrastructure | None = None
 
 
 class Limits(_Model):

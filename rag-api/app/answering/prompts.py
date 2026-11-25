@@ -27,6 +27,13 @@ ANSWER_SCHEMA: dict = {
     "additionalProperties": False,
 }
 
+# BE#213 / BE#215 / BE#224: what a situation on a locked fire infrastructure may hold, and its PC06 fields.
+SITUATION_AUDIENCES = ("Evacuee", "Communications", "EvacuationGuide", "FirstResponse")
+WORKING_HOURS = ("InHours", "OffHours")
+SITUATION_KINDS = ("Spawn", "Hazard", "Npc", "BlockedElement", "Equipment")
+SITUATION_EQUIPMENT = ("item.towel", "bait.belongings", "door.exit_locked", "door.fire_wedged")
+DOOR_STATES = ("door.exit_locked", "door.fire_wedged")
+
 _VEC = {
     "type": "object",
     "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
@@ -62,8 +69,25 @@ _DRAFT_STATE = {
             "additionalProperties": False,
         },
         "objects": {"type": "array", "items": _DRAFT_OBJECT},
+        # Mẫu PC06 situation fields (BE#215); null when the draft is not on a fire infrastructure.
+        "audience": {"type": ["string", "null"], "enum": [*SITUATION_AUDIENCES, None]},
+        "workingHours": {"type": ["string", "null"], "enum": [*WORKING_HOURS, None]},
+        "assumption": {
+            "type": ["object", "null"],
+            "properties": {
+                "time": {"type": "string", "description": "Giờ xảy ra hoặc phát hiện cháy, ví dụ 14:30 hoặc ban đêm (≤ 100 ký tự)"},
+                "location": {"type": "string", "description": "Vị trí đám cháy (≤ 500 ký tự)"},
+                "cause": {"type": "string", "description": "Nguyên nhân giả định và chất cháy (≤ 500 ký tự)"},
+                "peoplePresent": {"type": "integer", "description": "Số người có mặt, 0–100000"},
+            },
+            "required": ["time", "location", "cause", "peoplePresent"],
+            "additionalProperties": False,
+        },
     },
-    "required": ["name", "timeLimitSeconds", "learningObjectives", "learnerInstructions", "modePolicy", "objects"],
+    "required": [
+        "name", "timeLimitSeconds", "learningObjectives", "learnerInstructions", "modePolicy", "objects",
+        "audience", "workingHours", "assumption",
+    ],
     "additionalProperties": False,
 }
 DRAFT_SCHEMA: dict = {
@@ -86,7 +110,18 @@ _DRAFT_RULES = (
     "Mỗi đối tượng gắn anchorId phải đặt đúng floorId của anchor đó. Kind Hazard, Npc, Equipment cần capabilityId; "
     "BlockedElement cần anchorId. Trường parameters là chuỗi JSON. "
     "bim_anchor_ids liệt kê các ifcGlobalId (anchor hoặc tầng) bạn dựa vào. "
-    "Bản nháp chỉ để người dùng chỉnh sửa, không phải kết luận tuân thủ."
+    "Bản nháp chỉ để người dùng chỉnh sửa, không phải kết luận tuân thủ. "
+    "Nếu bim có infrastructure (hạ tầng PCCC đã khoá): đây là một tình huống theo Mẫu PC06 trên hạ tầng đó. "
+    "Lối thoát, điểm tập kết, thiết bị cố định và nguồn nước đã nằm trong infrastructure.items: dùng chúng làm ngữ cảnh "
+    "để đặt điểm xuất phát, nguy cơ và người bị nạn hợp lý, nhưng KHÔNG đưa chúng vào objects; không sinh Goal. "
+    "Kind Equipment chỉ được dùng capability item.towel (khăn), bait.belongings (đồ đạc dễ khiến quay lại), "
+    "door.exit_locked (cửa thoát bị khoá) hoặc door.fire_wedged (cửa chống cháy bị chèn mở); hai trạng thái cửa phải có "
+    "anchorId là một IfcDoor trong bim.anchors, cùng tầng. "
+    "Điền audience (Evacuee: người thoát nạn; Communications: thông tin liên lạc; EvacuationGuide: hướng dẫn thoát nạn; "
+    "FirstResponse: chữa cháy ban đầu), workingHours (InHours: trong giờ; OffHours: ngoài giờ) và assumption "
+    "(time, location, cause, peoplePresent) theo yêu cầu của người dùng. Khi yêu cầu không nói rõ trong giờ hay ngoài giờ, "
+    "hoặc thiếu số người có mặt, vẫn chọn giá trị hợp lý nhất và ghi rõ điều đã giả định vào assumptions. "
+    "Nếu bim không có infrastructure: để audience, workingHours và assumption là null."
 )
 
 _BASE = (
@@ -203,4 +238,26 @@ def bim_summary(bim: BimPin, max_anchors: int = 300) -> dict:
             {"code": q.code, "severity": q.severity, "message": q.message, "ifcGlobalId": q.ifc_global_id}
             for q in bim.quality_flags
         ],
+        **({"infrastructure": infrastructure_summary(bim)} if bim.infrastructure is not None else {}),
+    }
+
+
+def infrastructure_summary(bim: BimPin, max_items: int = 300) -> dict:
+    """The locked infrastructure as context: what stands where, without positions the model does not need."""
+    infra = bim.infrastructure
+    items = infra.items[: max(0, max_items)] if infra else []
+    return {
+        "id": infra.id if infra else None,
+        "version": infra.version if infra else None,
+        "items": [
+            {
+                "kind": item.kind,
+                "label": item.label,
+                "capabilityId": item.capability.id if item.capability else None,
+                "floorId": item.placement.floor_id if item.placement else None,
+                "anchorId": item.anchor_id,
+            }
+            for item in items
+        ],
+        "itemsTotal": len(infra.items) if infra else 0,
     }
