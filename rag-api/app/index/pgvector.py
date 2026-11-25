@@ -134,11 +134,14 @@ class PgVectorIndex:
 
     def incomplete_sources(self, embedding_model: str) -> list[IncompleteSource]:
         with self._connect() as conn:
+            # Grouped by the source identity only: batches of one source may carry a different title or URI (a source
+            # renamed mid-embedding), and splitting on them made a complete source look incomplete on every start.
             rows = conn.execute(
-                "SELECT source_id, metadata->>'document_version', metadata->>'content_hash', metadata->>'source_uri', "
-                "metadata->>'title' FROM knowledge_chunks "
-                "WHERE metadata->>'embedding_model' = %s AND metadata ? 'chunk_count' AND metadata->>'source_uri' IS NOT NULL "
-                "GROUP BY 1, 2, 3, 4, 5 HAVING count(*) < max((metadata->>'chunk_count')::int)",
+                "SELECT source_id, metadata->>'document_version', metadata->>'content_hash', "
+                "max(metadata->>'source_uri'), max(metadata->>'title') FROM knowledge_chunks "
+                "WHERE metadata->>'embedding_model' = %s AND metadata ? 'chunk_count' "
+                "GROUP BY 1, 2, 3 "
+                "HAVING count(*) < max((metadata->>'chunk_count')::int) AND max(metadata->>'source_uri') IS NOT NULL",
                 (embedding_model,),
             ).fetchall()
         return [IncompleteSource(str(r[0]), r[1] or "", r[2], r[3], r[4]) for r in rows]
