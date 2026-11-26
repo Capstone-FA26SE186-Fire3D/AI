@@ -399,6 +399,6 @@ Các liên kết dưới đây trỏ tới file trong repo để đối chiếu 
 | Trả lời và tạo kịch bản | [pipeline.py](../rag-api/app/answering/pipeline.py), [scenario.py](../rag-api/app/answering/scenario.py), [prompts.py](../rag-api/app/answering/prompts.py) |
 | Test và eval | [README RAG](../rag-api/README.md), [README eval](../rag-api/evals/README.md), [run_eval.py](../rag-api/evals/run_eval.py) |
 | Worker và đầu ra IFC | [README worker](../ifc-worker/README.md), [process.py](../ifc-worker/worker/pipeline/process.py) |
-| Triển khai và CI | [Triển khai](deploy-azure.md), [CI](../.github/workflows/ci.yml) |
+| Triển khai và CI | [Triển khai trên AWS EC2](deploy-aws.md), [CI](../.github/workflows/ci.yml) |
 
 Mốc tài liệu: main tại 4930fa8, ngày 19 tháng 10 năm 2026. Khi chuyển nhánh hoặc cập nhật code, kiểm tra lại README, Settings và schema trước khi dùng các ví dụ.
