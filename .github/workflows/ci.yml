@@ -31,11 +31,27 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: rag-api/requirements.txt
-      - run: pip install -r requirements.txt
+          cache-dependency-path: rag-api/requirements-test.txt
+      - run: pip install -r requirements-test.txt
       # FIRE3D_AI_TEST_PG_DSN trỏ vào service postgres ở trên, nên test pgvector chạy thật thay vì bị bỏ qua.
-      - run: python -m pytest -q -rs
+      - run: python -m pytest -q -rs --junitxml=test-results.xml --cov=app --cov-branch --cov-report=xml:coverage.xml --cov-report=json:coverage.json
       - run: python -m evals.run_eval --provider fake --out evals/reports/ci
+      - name: Inventory AI modules
+        if: always()
+        run: python ../tools/test_inventory.py
+      - name: Upload RAG coverage and test output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-rag-tests-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            rag-api/coverage.xml
+            rag-api/coverage.json
+            rag-api/test-results.xml
+            rag-api/evals/reports/ci/
+            .codex/local/test-module-inventory.md
+            .codex/local/test-module-inventory.json
+          if-no-files-found: ignore
 
   ifc-worker:
     runs-on: ubuntu-latest
@@ -48,6 +64,16 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: ifc-worker/requirements.txt
-      - run: pip install -r requirements.txt
-      - run: python -m pytest -q
+          cache-dependency-path: ifc-worker/requirements-test.txt
+      - run: pip install -r requirements-test.txt
+      - run: python -m pytest -q -rs --junitxml=test-results.xml --cov=worker --cov-branch --cov-report=xml:coverage.xml --cov-report=json:coverage.json
+      - name: Upload IFC coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-ifc-tests-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ifc-worker/coverage.xml
+            ifc-worker/coverage.json
+            ifc-worker/test-results.xml
+          if-no-files-found: ignore
