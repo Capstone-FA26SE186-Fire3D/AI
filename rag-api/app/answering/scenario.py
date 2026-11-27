@@ -11,7 +11,10 @@ from jsonschema import Draft202012Validator
 from app.answering.pipeline import (
     NO_SOURCE, Grounded, PipelineDeps, _terminal, ground, parse_grounded, vet_text,
 )
-from app.answering.prompts import DRAFT_SCHEMA, bim_summary, usable_capabilities
+from app.answering.prompts import (
+    DOOR_STATES, DRAFT_SCHEMA, SITUATION_AUDIENCES, SITUATION_EQUIPMENT, WORKING_HOURS, bim_summary,
+    usable_capabilities,
+)
 from app.answering.usage import to_usage
 from app.answering.validate import clean_list, to_plain_text
 from app.sources.resolver import PreparedSources
@@ -42,6 +45,11 @@ def _build_object(raw: object, bim: BimPin, caps: dict[str, tuple[str, list[str]
     kind = raw.get("kind")
     if kind not in _KINDS:
         return None, "loại đối tượng không hợp lệ"
+    situation = bim.infrastructure is not None
+    if situation and kind == "Goal":
+        return None, "lối thoát và điểm tập kết thuộc hạ tầng PCCC đã khoá, không thuộc tình huống"
+    if situation and kind == "Equipment" and (raw.get("capabilityId") or None) not in SITUATION_EQUIPMENT:
+        return None, "thiết bị cố định thuộc hạ tầng PCCC đã khoá, tình huống chỉ thêm khăn, đồ đạc hoặc trạng thái cửa"
     floor_id = raw.get("floorId")
     if floor_id not in {f.id for f in bim.floors}:
         return None, "tầng không thuộc bản BIM đã ghim"
@@ -51,6 +59,10 @@ def _build_object(raw: object, bim: BimPin, caps: dict[str, tuple[str, list[str]
             return None, "anchor không thuộc bản BIM đã ghim trên cùng tầng"
     elif kind == "BlockedElement":
         return None, "phần tử bị chặn thiếu anchor"
+    if (raw.get("capabilityId") or None) in DOOR_STATES and not any(
+        a.ifc_global_id == anchor_id and a.floor_id == floor_id and a.semantic_type == "IfcDoor" for a in bim.anchors
+    ):
+        return None, "trạng thái cửa phải gắn với một cửa của mô hình trên cùng tầng"
     cap_id = raw.get("capabilityId") or None
     capability = None
     if cap_id is not None:
@@ -124,6 +136,9 @@ def build_state(model_state: dict, bim: BimPin) -> tuple[dict, list[str]]:
         if modes:
             state["modePolicy"] = {"allowedModes": modes}
 
+    if bim.infrastructure is not None:
+        limitations.extend(_situation_fields(ms, state))
+
     caps = usable_capabilities(bim.runtime)
     objects: list[dict] = []
     seen: set[str] = set()
@@ -154,6 +169,39 @@ def build_state(model_state: dict, bim: BimPin) -> tuple[dict, list[str]]:
                 del state[field]
                 limitations.append(f"Đã bỏ trường {field} vì không đúng định dạng kịch bản.")
     return state, limitations
+
+
+_ASSUMPTION_LIMITS = {"time": 100, "location": 500, "cause": 500}
+_SITUATION_FIELD_NAMES = {"audience": "đối tượng luyện tập", "workingHours": "trong giờ hay ngoài giờ", "assumption": "giả định tình huống"}
+
+
+def _situation_fields(ms: dict, state: dict) -> list[str]:
+    """Copies the PC06 fields the model filled correctly into state; one limitation per field the user still has to fill."""
+    missing: list[str] = []
+    if ms.get("audience") in SITUATION_AUDIENCES:
+        state["audience"] = ms["audience"]
+    else:
+        missing.append("audience")
+    if ms.get("workingHours") in WORKING_HOURS:
+        state["workingHours"] = ms["workingHours"]
+    else:
+        missing.append("workingHours")
+    raw = ms.get("assumption") if isinstance(ms.get("assumption"), dict) else {}
+    assumption: dict = {}
+    for key, limit in _ASSUMPTION_LIMITS.items():
+        text = to_plain_text(raw.get(key), limit)
+        if text:
+            assumption[key] = text
+    people = raw.get("peoplePresent")
+    if isinstance(people, int) and not isinstance(people, bool) and 0 <= people <= 100_000:
+        assumption["peoplePresent"] = people
+    if len(assumption) == 4:
+        state["assumption"] = assumption
+    else:
+        missing.append("assumption")
+    return [
+        f"Chưa đề xuất được {_SITUATION_FIELD_NAMES[field]}; hãy điền trước khi gửi thẩm định." for field in missing
+    ]
 
 
 def build_bim_anchors(ids: list[str], bim: BimPin) -> list[BimAnchor]:

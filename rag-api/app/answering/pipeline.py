@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -12,13 +13,14 @@ from app.answering.usage import context_budget, estimate_tokens, to_usage
 from app.answering.validate import build_citations, clean_list, to_plain_text
 from app.core.config import Settings
 from app.index.base import KnowledgeIndex
-from app.llm.base import LlmUsage, Provider
+from app.llm.base import LlmUsage, Provider, answer_reasoning, reasoning_effort
 from app.sources.resolver import PreparedSources
 from app.v2.schemas import AdapterRequest, AdapterResponse
 
 _REQUIRED = ("status", "answer", "citations", "assumptions", "limitations")
 NO_SOURCE = "Không có nguồn đã duyệt phù hợp để trả lời câu hỏi này."
 INVALID_OUTPUT = "Kết quả AI không hợp lệ."
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -82,20 +84,26 @@ def ground(
     def payload_for(selected):
         return build_payload(req.input.text, selected, extra, titles)
 
-    while chunks and estimate_tokens(system + json.dumps(payload_for(chunks), ensure_ascii=False)) > budget:
+    def estimate(selected):
+        return estimate_tokens(system + json.dumps(payload_for(selected), ensure_ascii=False))
+
+    est_in = estimate(chunks) if chunks else 0
+    while chunks and est_in > budget:
         chunks = chunks[:-1]
+        est_in = estimate(chunks) if chunks else 0
     if not chunks:
         return _terminal(req, "InsufficientEvidence", NO_SOURCE, limitations + ["Hạn mức không đủ để xử lý."], None)
 
     payload = payload_for(chunks)
     max_out = deps.settings.max_output_tokens
     if req.limits.quota_unit == "tokens":
-        est_in = estimate_tokens(system + json.dumps(payload, ensure_ascii=False))
+        # est_in is the estimate of exactly this payload (the last one the loop measured).
         max_out = min(max_out, req.limits.max_units - est_in)
         if max_out < 1:
             return _terminal(req, "InsufficientEvidence", NO_SOURCE, limitations + ["Hạn mức không đủ để xử lý."], None)
 
-    raw, llm = deps.provider.generate(system, payload, schema, max_out)
+    with reasoning_effort(answer_reasoning(req.operation, deps.settings)):
+        raw, llm = deps.provider.generate(system, payload, schema, max_out)
     if deps.on_usage is not None:
         deps.on_usage(llm)
     return Grounded(raw, llm, chunks, limitations, prepared.pins)
@@ -132,6 +140,29 @@ def vet_text(req: AdapterRequest, text: object, p: Parsed) -> tuple[str, Adapter
     return plain, None
 
 
+def _general_or(req: AdapterRequest, deps: PipelineDeps, terminal: AdapterResponse, used: LlmUsage | None) -> AdapterResponse:
+    """Replaces a no-fitting-source InsufficientEvidence with a general answer when GENERAL_ANSWERS is on."""
+    if (
+        not deps.settings.general_answers
+        or terminal.status != "InsufficientEvidence"
+        or terminal.recommendation != NO_SOURCE
+        or any(l.startswith("Hạn mức") for l in terminal.limitations)
+    ):
+        return terminal
+    from app.answering.general import GENERAL_NOTE, general_answer
+
+    try:
+        out = general_answer(req, deps.provider, deps.settings, used, deps.on_usage)
+    except Exception:
+        log.warning("general answer failed; keeping InsufficientEvidence", exc_info=True)
+        return terminal
+    if out is None:
+        return terminal
+    kind, text, llm = out
+    limits = [GENERAL_NOTE] if kind == "answered" else []
+    return _terminal(req, "InsufficientEvidence", text, limits, llm)
+
+
 def run_pipeline(req: AdapterRequest, prepared: PreparedSources, deps: PipelineDeps) -> AdapterResponse:
     # Raises AI_QUOTA_UNIT_UNSUPPORTED before any provider call.
     budget = context_budget(req.limits, deps.settings.max_output_tokens)
@@ -143,10 +174,10 @@ def run_pipeline(req: AdapterRequest, prepared: PreparedSources, deps: PipelineD
     extra = {"context": req.context} if req.context else None
     g = ground(req, prepared, deps, budget, ANSWER_SCHEMA, extra)
     if isinstance(g, AdapterResponse):
-        return g
+        return _general_or(req, deps, g, None)
     p = parse_grounded(req, g)
     if isinstance(p, AdapterResponse):
-        return p
+        return _general_or(req, deps, p, g.llm)
     answer, terminal = vet_text(req, p.raw["answer"], p)
     if terminal:
         return terminal

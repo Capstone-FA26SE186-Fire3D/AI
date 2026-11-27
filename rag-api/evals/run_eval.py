@@ -156,12 +156,15 @@ def render_markdown(report: dict, provider_name: str) -> str:
 def _build_provider(name: str) -> Provider:
     if name == "fake":
         return fake_provider()
-    return __import__("app.llm.factory", fromlist=["get_provider"]).get_provider(Settings(llm_provider=name))
+    get_provider = __import__("app.llm.factory", fromlist=["get_provider"]).get_provider
+    # "env": the provider the service itself would use (CHAT_*, EMBED_PROVIDER, LOCAL_MODEL_DIR from the environment),
+    # so the production combination can be evaluated and not only the two vendor defaults.
+    return get_provider(Settings() if name == "env" else Settings(llm_provider=name))
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Offline eval for the Fire3D AI answer pipeline")
-    parser.add_argument("--provider", choices=["fake", "openai", "gemini"], default="fake")
+    parser.add_argument("--provider", choices=["fake", "openai", "gemini", "env"], default="fake")
     parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
     parser.add_argument("--out", type=Path, default=None, help="thư mục ghi report.json và report.md")
     args = parser.parse_args(argv)

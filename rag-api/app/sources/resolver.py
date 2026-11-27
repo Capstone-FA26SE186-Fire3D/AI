@@ -1,21 +1,24 @@
 """Turn BE-pinned sources into searchable chunks (indexed or inline).
 
 Knowledge sources are used only once fully embedded; others are handed to the SourceWarmer and skipped for this
-question with a limitation. A question fails only when none of its knowledge sources is ready and it has no inline
+question with a limitation. Inline content is embedded once per process (EmbeddingCache): a few missing chunks
+during the question, more by the warmer while the question uses what is already cached. A question fails only when none of its knowledge sources is ready and it has no inline
 source: AI_SOURCES_PREPARING (503, BE retries) while some are still being embedded, else the failure of the first.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
 import httpx
 
 from app.core.config import Settings
 from app.index.base import KnowledgeIndex
-from app.llm.base import Provider
+from app.llm.base import Provider, ProviderError
 from app.sources.chunking import Chunk, chunk_sections
+from app.sources.criteria import is_context_snapshot
 from app.sources.render import inline_sections
-from app.sources.warmer import QUEUED, SourceWarmer
+from app.sources.warmer import QUEUED, READY, SourceWarmer
 from app.v2.errors import AdapterRefusal, refuse
 from app.v2.schemas import SourcePin
 
@@ -25,8 +28,20 @@ class PreparedSources:
     knowledge_ids: list[str] = field(default_factory=list)
     inline_chunks: list[Chunk] = field(default_factory=list)
     inline_embeddings: list[list[float]] = field(default_factory=list)
+    query_embedding: list[float] | None = None
     pins: dict[str, SourcePin] = field(default_factory=dict)
     limitations: list[str] = field(default_factory=list)
+
+log = logging.getLogger(__name__)
+
+
+@dataclass
+class _Budget:
+    """Chunks one question may still embed directly, across all its inline sources."""
+
+    left: int
+
+PARTIAL = "partial"
 
 
 def _name(pin: SourcePin) -> str:
@@ -51,16 +66,25 @@ class SourceResolver:
     def prepare(self, pins: list[SourcePin]) -> PreparedSources:
         prepared = PreparedSources()
         preparing: list[SourcePin] = []
+        # Chunks this question may still embed directly, across all its inline sources; 0 after a provider error.
+        budget = _Budget(self.settings.inline_sync_chunks)
         failed: list[tuple[SourcePin, AdapterRefusal]] = []
         for pin in pins:
             if pin.content_omitted:
                 prepared.limitations.append(f"Nguồn {_name(pin)} quá lớn, không được dùng.")
                 continue
             if pin.kind != "KnowledgeSource":
-                self._prepare_inline(pin, prepared)
+                state = self._prepare_inline(pin, prepared, budget)
+                if state == QUEUED:
+                    preparing.append(pin)
+                elif state == PARTIAL:
+                    prepared.limitations.append(
+                        f"Nguồn {_name(pin)} mới dùng được một phần, phần còn lại đang được chuẩn bị."
+                    )
                 continue
             if not pin.content_hash:
-                raise refuse("AI_SOURCE_UNAVAILABLE", f"Source {pin.document_id} has no content hash to verify")
+                raise refuse("AI_SOURCE_UNAVAILABLE", f"Source {pin.document_id} has no content hash to verify",
+                             document_id=pin.document_id)
             state = (
                 "ready" if self.index.has_current(pin.document_id, pin.content_hash, self.provider.embedding_model)
                 else self.warmer.request(pin)
@@ -81,15 +105,53 @@ class SourceResolver:
                     f"{len(preparing)} source(s) are being prepared; retry in a few minutes",
                     status=503,
                 )
-            raise failed[0][1]
+            pin, refusal = failed[0]
+            if refusal.document_id is None:
+                refusal.document_id = pin.document_id
+            raise refusal
         prepared.limitations.extend(f"Nguồn {_name(pin)} đang được chuẩn bị, chưa dùng cho câu hỏi này." for pin in preparing)
         prepared.limitations.extend(f"Nguồn {_name(pin)} hiện không dùng được." for pin, _ in failed)
         return prepared
 
-    def _prepare_inline(self, pin: SourcePin, prepared: PreparedSources) -> None:
+    def _prepare_inline(self, pin: SourcePin, prepared: PreparedSources, budget: _Budget | None = None) -> str:
+        """Adds the inline chunks whose embeddings are cached (embedding a few missing ones now); READY, PARTIAL or
+        QUEUED (nothing usable yet, the warmer is filling the cache)."""
         chunks = chunk_sections(inline_sections(pin), pin.document_id, pin.document_version)
         if not chunks:
-            return
-        prepared.inline_chunks.extend(chunks)
-        prepared.inline_embeddings.extend(self.provider.embed([c.content for c in chunks]))
+            return READY
+        if is_context_snapshot(pin.kind):
+            # The Training snapshot / Session result is passed to the model whole (retrieval._with_context), never
+            # ranked, so it needs no embedding and does not use this question's embedding budget.
+            prepared.inline_chunks.extend(chunks)
+            prepared.inline_embeddings.extend([] for _ in chunks)
+            prepared.pins[pin.document_id] = pin
+            return READY
+        model = self.provider.embedding_model
+        cache = self.warmer.inline_cache
+        texts = [c.content for c in chunks]
+        vectors = cache.get_many(model, texts)
+        missing = [i for i, vec in enumerate(vectors) if vec is None]
+        budget = budget or _Budget(self.settings.inline_sync_chunks)
+        if missing and len(missing) <= budget.left:
+            budget.left -= len(missing)
+            try:
+                fresh = self.provider.embed([texts[i] for i in missing])
+            except ProviderError:
+                budget.left = 0  # quota is likely gone: leave the rest of this question to the warmer
+                log.info("inline source %s left to the warmer after a failed embed", pin.document_id)
+            else:
+                cache.put_many(model, [texts[i] for i in missing], fresh)
+                for i, vec in zip(missing, fresh):
+                    vectors[i] = vec
+                missing = []
+        if missing and self.warmer.request(pin) == READY:
+            # A warmer without a background thread (tests, scripts) embedded it just now.
+            vectors = cache.get_many(model, texts)
+            missing = [i for i, vec in enumerate(vectors) if vec is None]
+        usable = [(c, vec) for c, vec in zip(chunks, vectors) if vec is not None]
+        if not usable:
+            return QUEUED
+        prepared.inline_chunks.extend(c for c, _ in usable)
+        prepared.inline_embeddings.extend(vec for _, vec in usable)
         prepared.pins[pin.document_id] = pin
+        return PARTIAL if missing else READY

@@ -8,6 +8,7 @@ from io import BytesIO
 
 from pypdf import PdfReader
 
+from app.sources.criteria import is_context_snapshot, snapshot_sections
 from app.sources.chunking import Section
 from app.v2.errors import refuse
 from app.v2.schemas import SourcePin
@@ -152,6 +153,9 @@ def inline_sections(pin: SourcePin) -> list[Section]:
         if content.get("payload") is not None:
             for path, text in _flatten(content["payload"], "payload"):
                 sections.append(Section(f"{path}: {text}", {"field": path}))
+    elif is_context_snapshot(pin.kind):
+        # Training snapshot / Session result: one readable section per rubric criterion and per metric.
+        sections.extend(Section(text, locator) for text, locator in snapshot_sections(content))
     else:
         for key, val in content.items():
             if val is None:

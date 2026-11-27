@@ -6,6 +6,8 @@
   "timeLimitSeconds": 600,
   "randomSeed": 42,
   "replanIntervalSeconds": 5,
+  "wind": { "directionDegrees": 90, "strength": 0.4 },
+  "routingConfig": { "hazardExposureWeight": 8, "congestionWeight": 2, "portalPenaltyWeight": 1.5, "blockedWeight": 1000 },
   "modePolicy": { "allowedModes": ["Learn", "Guided", "Assessment"] },
   "learningObjectives": ["Thoát hiểm theo lối an toàn gần nhất"],
   "learnerInstructions": "Rời khỏi tòa nhà qua cửa thoát hiểm, tránh khu vực có lửa.",

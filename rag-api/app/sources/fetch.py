@@ -29,6 +29,15 @@ def _check_https(uri: str) -> None:
         raise refuse("AI_SOURCE_UNAVAILABLE", f"Source URI must use https: {_safe(uri)}")
 
 
+# The fetcher names itself honestly. A publisher that refuses automated clients (e.g. redcross.org answers 403) is not
+# worked around: that source fails on its own (the question uses the others) and should be replaced by a file the
+# organisation hosts or a publisher that allows it.
+FETCH_HEADERS = {
+    "User-Agent": "FET3D-SourceFetcher/1.0 (+https://fet3d.io.vn)",
+    "Accept": "application/pdf,text/plain,text/markdown,text/html;q=0.8,*/*;q=0.5",
+}
+
+
 def fetch_document(
     uri: str,
     expected_sha256: str,
@@ -44,7 +53,7 @@ def fetch_document(
         current = uri
         for hop in range(_MAX_REDIRECTS + 1):
             try:
-                request = http.build_request("GET", current)
+                request = http.build_request("GET", current, headers=FETCH_HEADERS)
                 response = http.send(request, stream=True, follow_redirects=False)
             except httpx.InvalidURL:
                 raise refuse("AI_SOURCE_UNAVAILABLE", f"Source URI is invalid: {_safe(current)}") from None

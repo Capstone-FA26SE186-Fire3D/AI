@@ -27,6 +27,38 @@ Các biến môi trường mới (xem `.env.example`): `ENVIRONMENT`, `AI_API_KE
 `EMBED_ITEMS_PER_MINUTE` (mặc định 80), `EMBED_TOKENS_PER_MINUTE` (20000, ước lượng ký tự/2,5), `EMBED_BATCH_SIZE` (20),
 `SOURCE_RETRY_SECONDS` (300).
 
+Tách nhà cung cấp trả lời và embedding (tuỳ chọn): đặt `CHAT_PROVIDER=openai_compat`, `CHAT_BASE_URL` (ví dụ
+`https://gateway.example/v1`), `CHAT_API_KEY`, `CHAT_MODEL` thì câu trả lời đi qua cổng chat completions đó, còn
+`LLM_PROVIDER` vẫn embed (vector cũ không phải tạo lại). Nhiều cổng bỏ qua `response_format`, nên JSON Schema được đưa vào
+system prompt và câu trả lời được đọc JSON có khoan dung (bỏ ``` và chữ thừa); `CHAT_REASONING_EFFORT` (mặc định `low`, để
+trống để không gửi) giảm token "suy nghĩ". Câu hỏi và đoạn tài liệu được gửi tới cổng này. `CHAT_ANSWER_REASONING_EFFORT` (tuỳ chọn) đặt riêng mức này cho câu trả lời
+(Answer, TraineeAnswer, trả lời chung), bản nháp kịch bản vẫn dùng `CHAT_REASONING_EFFORT`; đo 18/11/2026 trên vibi
+`gemini-3.6-flash`, độ trễ của cổng (12–45 s) dao động nhiều hơn mức chênh do `none`/`minimal`/`low`, nên chưa bật.
+
+Chạy không cần Google AI Studio (AI#32): `CHAT_PROVIDER=openai_compat` (vibi) trả lời và `EMBED_PROVIDER=local` embed,
+khi đó `LLM_PROVIDER`/`GEMINI_API_KEY` không được dùng và có thể bỏ. Cổng không áp structured output nên JSON Schema nằm
+trong prompt; câu trả lời thiếu trường bắt buộc, sai kiểu hoặc bị cắt được hỏi lại **một lần** kèm lỗi (token của cả hai
+lượt được tính), lượt hỏi lại lỗi thì giữ câu trả lời đầu. HTTP 429 được thử lại 2 lần (2 s, 5 s; theo `Retry-After`, tối đa
+10 s); vẫn 429 mà chưa có lượt gọi nào tính phí thì trả 503 để BE gửi lại.
+
+Nguồn tri thức (AI#24, AI#27): `sourceUri` phải trỏ tới **tệp tĩnh có bytes cố định** (PDF, TXT, MD). Trang HTML động
+(luatvietnam.vn, nfpa.org…) đổi bytes mỗi lần tải nên luôn `AI_SOURCE_HASH_MISMATCH`; băm theo nội dung chữ cần đổi contract
+với BE. Nguồn lỗi (403, hết giờ, lệch hash) chỉ bị bỏ qua kèm limitation, thông báo lỗi ghi `Source <document_id>: …`; trình
+tải tự xưng `FET3D-SourceFetcher/1.0` và không giả trình duyệt, nên nhà xuất bản chặn client tự động (redcross.org trả 403)
+phải được thay bằng tệp tổ chức tự lưu trữ. Nguồn lệch hash chờ `SOURCE_MISMATCH_RETRY_SECONDS` (mặc định 6 giờ) mới tải
+lại, thay vì `SOURCE_RETRY_SECONDS`, vì tải lại cùng trang động vẫn lệch.
+
+Trả lời chung (tuỳ chọn): `GENERAL_ANSWERS=true` — khi Hỏi đáp không có nguồn đã duyệt phù hợp, AI gọi model thêm một lần
+với prompt giới hạn phạm vi (`app/answering/general.py`): chào hỏi, cách dùng FET3D và kiến thức PCCC phổ thông; câu ngoài chủ đề
+nhận câu từ chối cố định; không nêu số liệu/điều khoản quy chuẩn, không chứng nhận. Safety gate vẫn chạy trước, kết quả vẫn là
+`InsufficientEvidence` (BE chỉ nhận `Answered` khi có trích dẫn) kèm limitation "không dựa trên tài liệu đã duyệt". Không áp
+dụng cho ScenarioDraft.
+
+Embedding tại chỗ (tuỳ chọn): `EMBED_PROVIDER=local` dùng `intfloat/multilingual-e5-small` bản int8 (ONNX qua
+`fastembed`, khoảng 130 MB đĩa, 0,5 GB RAM, đọc tới 512 token) trong `LOCAL_MODEL_DIR`, không quota và không gửi dữ liệu ra
+ngoài. Vector lưu với model `local:multilingual-e5-small-q8`; tài liệu đã embed bằng model khác được warmer embed lại. Khi chạy
+máy CPU, đặt `EMBED_ITEMS_PER_MINUTE`/`EMBED_TOKENS_PER_MINUTE` cao (giới hạn đó dành cho quota nhà cung cấp).
+
 ### Chuẩn bị knowledge source (embed chạy nền)
 
 Câu hỏi không chờ embed. Nguồn `KnowledgeSource` đã embed đủ thì dùng ngay; nguồn chưa có thì bị bỏ qua cho câu đó (ghi
@@ -71,4 +103,4 @@ Các route cũ `/documents`, `/chat`, `/pccc/*` và CORS mặc định TẮT. Đ
 
 Test pgvector chỉ chạy khi đặt `FIRE3D_AI_TEST_PG_DSN` tới một PostgreSQL có pgvector; nếu không, chúng tự bỏ qua, kể cả khi máy có Docker; chỉ đặt `FIRE3D_AI_TEST_PG_DOCKER=1` khi muốn tự khởi chạy container pgvector. Eval `fake` chạy hoàn toàn offline (xem `evals/README.md`); `--provider openai|gemini` cần khoá API tương ứng (`OPENAI_API_KEY`, `GEMINI_API_KEY`).
 
-Biến môi trường chính: xem mục "Cấu hình v2" và `.env.example`. Dự án không dùng Docker; hướng dẫn triển khai Azure App Service ở `../docs/deploy-azure.md`.
+Biến môi trường chính: xem mục "Cấu hình v2" và `.env.example`. Dự án không dùng Docker; hướng dẫn triển khai (AWS EC2, đang chạy) ở `../docs/deploy-aws.md`.

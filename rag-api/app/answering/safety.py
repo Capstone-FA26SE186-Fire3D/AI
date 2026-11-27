@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from functools import lru_cache
 
 SAFETY_RULES_VERSION = "1"
 
@@ -36,8 +37,13 @@ def normalize(text: str) -> str:
     return re.sub(r"\s+", " ", stripped).strip()
 
 
+@lru_cache(maxsize=None)
+def _phrase(p: str) -> re.Pattern[str]:
+    return re.compile(rf"(?<!\w){re.escape(p)}(?!\w)")
+
+
 def _contains(norm: str, phrases: tuple[str, ...]) -> bool:
-    return any(re.search(rf"(?<!\w){re.escape(p)}(?!\w)", norm) for p in phrases)
+    return any(_phrase(p).search(norm) for p in phrases)
 
 
 def check_request(text: str) -> str | None:

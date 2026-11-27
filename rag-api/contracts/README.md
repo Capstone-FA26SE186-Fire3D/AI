@@ -1,6 +1,6 @@
 # Contract vendored từ BE
 
-Nguồn: repo BE, commit `c4975f1` (`origin/main`).
+Nguồn: repo BE, commit `f589374` (`origin/main`, 25/11/2026).
 
 | File ở đây | Nguồn trong BE |
 |---|---|

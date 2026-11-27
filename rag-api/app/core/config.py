@@ -18,8 +18,26 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_chat_model: str = "gemini-2.5-flash"
     gemini_embedding_model: str = "gemini-embedding-001"
+    # Optional: answer through an OpenAI-compatible gateway (CHAT_PROVIDER=openai_compat) while LLM_PROVIDER keeps
+    # embedding. Empty CHAT_PROVIDER means LLM_PROVIDER does both.
+    chat_provider: str = ""
+    chat_base_url: str = ""
+    chat_api_key: str = ""
+    chat_model: str = ""
+    chat_reasoning_effort: str = "low"
+    # Reasoning effort for answers (Answer, TraineeAnswer and general answers) when it should differ from drafts; unset
+    # keeps CHAT_REASONING_EFFORT. "none" skips the gateway model's thinking tokens, which are billed and add latency.
+    chat_answer_reasoning_effort: str | None = None
+    # Optional: EMBED_PROVIDER=local embeds with a model on this machine (no quota); stored vectors of another model
+    # are re-embedded by the warmer. LOCAL_EMBED_THREADS=0 lets ONNX pick.
+    embed_provider: str = ""
+    local_model_dir: str = "./data/models"
+    local_embed_threads: int = 0
     llm_timeout_seconds: float = 45
     max_output_tokens: int = 1500
+    # When no approved source fits a question (Answer/TraineeAnswer), answer everyday fire-safety and app questions
+    # generally (still InsufficientEvidence, labelled as not source-based) and decline off-topic ones.
+    general_answers: bool = False
     request_stale_seconds: int = 300
     recovery_interval_seconds: int = 30
     recovery_max_attempts: int = 3
@@ -32,6 +50,14 @@ class Settings(BaseSettings):
     embed_tokens_per_minute: int = 20_000
     embed_batch_size: int = 20
     source_retry_seconds: int = 300
+    # A source whose bytes did not match its pinned hash (typically a dynamic web page) fails the same way on the next
+    # try: it waits this long instead, so it is not re-downloaded for every question.
+    source_mismatch_retry_seconds: int = 21_600
+    # Inline content (lessons, library items) is embedded once per process and cached by chunk text. Up to
+    # inline_sync_chunks missing chunks are embedded during the question; more go to the background warmer while the
+    # question uses the chunks already cached.
+    inline_sync_chunks: int = 20
+    inline_cache_items: int = 5000
     legacy_routes_enabled: bool = False
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     @property

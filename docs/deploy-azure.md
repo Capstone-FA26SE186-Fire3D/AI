@@ -1,5 +1,7 @@
 # Triển khai AI service lên Azure
 
+> **Lưu ý:** từ 10/11/2026 service AI chạy trên một máy AWS EC2 riêng (không chung máy với BE), không còn trên Azure. Cách triển khai đang dùng: [deploy-aws.md](deploy-aws.md). Phần dưới đây là thiết kế cũ cho Azure, giữ lại để tham khảo các thông số (probe, timeout, biến môi trường, checklist nghiệm thu) vẫn còn đúng.
+
 Hướng dẫn này mô tả cách triển khai `rag-api` (FastAPI) cho môi trường thật. Đây là hướng dẫn thiết kế, chưa phải hạ tầng đã tạo hay đã nghiệm thu.
 
 ## Phương án mặc định: Azure App Service (Linux, code deploy)

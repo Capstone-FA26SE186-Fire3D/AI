@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.answering.pipeline import PipelineDeps, run_pipeline
 from app.answering.usage import context_budget, to_usage
-from app.llm.base import LlmUsage
+from app.llm.base import LlmUsage, RateLimited, embed_query
 from app.requests.store import USAGE_SUM_FIELDS, RequestRecord, RequestStore
 from app.sources.resolver import SourceResolver
 from app.v2.errors import AdapterRefusal
@@ -25,7 +25,10 @@ def error(code: str, message: str) -> dict:
 
 
 def _refusal(exc: AdapterRefusal) -> tuple[int, dict]:
-    return exc.status_code, error(exc.code, exc.message)
+    body = error(exc.code, exc.message)
+    if exc.document_id:
+        body["document_id"] = exc.document_id
+    return exc.status_code, body
 
 
 def _unavailable() -> tuple[int, dict]:
@@ -144,6 +147,10 @@ class RequestService:
         # Row is ours and Received: no provider side-effect yet, so failures delete it.
         try:
             prepared = self.resolver.prepare(req.sources)
+            if prepared.knowledge_ids or prepared.inline_chunks:
+                # Before mark_processing: a quota error here deletes the row and returns a retryable 503
+                # instead of an unknown outcome after Processing.
+                prepared.query_embedding = embed_query(self.resolver.provider, req.input.text)
             if not self.store.mark_processing(rid):
                 # Purged/changed underneath us; nothing was sent to a provider.
                 log.warning("mark_processing lost the row", extra={"request_id": rid})
@@ -157,8 +164,28 @@ class RequestService:
             return _unavailable()
 
         # Processing is committed: from here a provider call may have happened.
+        deps = self._deps_for(req)
+        settled: list[LlmUsage] = []
+        record_usage = deps.on_usage
+
+        def track(llm: LlmUsage) -> None:
+            settled.append(llm)
+            if record_usage is not None:
+                record_usage(llm)
+
+        deps = dataclasses.replace(deps, on_usage=track)
         try:
-            response = run_pipeline(req, prepared, self._deps_for(req))
+            response = run_pipeline(req, prepared, deps)
+        except RateLimited:
+            if settled:
+                log.exception("rate limited after a billed provider call", extra={"request_id": rid})
+                return _outcome_unknown()
+            # A 429 is a refusal before any generation: nothing was billed or produced, so the request is as if never
+            # processed. Delete the row and return a retryable 503 (the BE retries) instead of an unknown outcome that
+            # parks it for manual reconciliation.
+            log.warning("provider rate limited before any billed call", extra={"request_id": rid})
+            self._safe_delete(rid)
+            return _unavailable()
         except AdapterRefusal as exc:
             # Every AdapterRefusal raised by run_pipeline happens before provider.generate
             # (quota-unit / BIM-pin checks; both are also pre-checked before INSERT), so no

@@ -23,7 +23,8 @@ from app.index.base import KnowledgeIndex
 from app.llm.base import Provider, ProviderError, RateLimited
 from app.sources.chunking import chunk_sections
 from app.sources.fetch import fetch_document
-from app.sources.render import document_sections
+from app.sources.embedding_cache import EmbeddingCache
+from app.sources.render import document_sections, inline_sections
 from app.v2.errors import AdapterRefusal, refuse
 from app.v2.schemas import SourcePin
 
@@ -44,6 +45,12 @@ def _filename(uri: str) -> str:
 
 class _Stopped(Exception):
     pass
+
+
+def _bare(refusal: AdapterRefusal) -> AdapterRefusal:
+    """A copy without traceback or cause: a stored failure is shared by request threads for source_retry_seconds, and
+    the original's traceback holds the fetched document and chunks (up to source_max_bytes) and grows on each re-raise."""
+    return AdapterRefusal(refusal.status_code, refusal.code, refusal.message, refusal.document_id)
 
 
 class RateLimiter:
@@ -88,6 +95,7 @@ class SourceWarmer:
         self.clock = clock
         self.limiter = RateLimiter(settings.embed_items_per_minute, clock, self._sleep)
         self.token_limiter = RateLimiter(settings.embed_tokens_per_minute, clock, self._sleep)
+        self.inline_cache = EmbeddingCache(settings.inline_cache_items)
         self._queue: dict[tuple[str, str], SourcePin] = {}
         self._failed: dict[tuple[str, str], tuple[AdapterRefusal, float]] = {}
         self._cond = threading.Condition()
@@ -98,20 +106,21 @@ class SourceWarmer:
 
     def request(self, pin: SourcePin) -> str | AdapterRefusal:
         """READY, QUEUED, or the refusal of a recent failure; never blocks on embedding in background mode."""
-        if not pin.source_uri:
-            return refuse("AI_SOURCE_UNAVAILABLE", f"Source {pin.document_id} has no source_uri")
-        key = (pin.document_id, pin.content_hash or "")
+        if pin.kind == "KnowledgeSource" and not pin.source_uri:
+            return refuse("AI_SOURCE_UNAVAILABLE", f"Source {pin.document_id} has no source_uri",
+                          document_id=pin.document_id)
+        key = (pin.document_id, pin.content_hash or pin.document_version)
         if not self.background:
             try:
                 self._warm(pin)
             except AdapterRefusal as exc:
-                return exc
+                return _bare(exc)
             return READY
         with self._cond:
             failure = self._failed.get(key)
             if failure is not None:
                 if failure[1] > self.clock():
-                    return failure[0]
+                    return _bare(failure[0])
                 del self._failed[key]
             self._queue.setdefault(key, pin)
             self._cond.notify()
@@ -170,14 +179,17 @@ class SourceWarmer:
             self.run_one(key, pin)
 
     def run_one(self, key: tuple[str, str], pin: SourcePin) -> None:
-        """Embeds one queued source and settles it: done, or failed until source_retry_seconds pass."""
+        """Embeds one queued source and settles it: done, or failed until source_retry_seconds pass (a hash mismatch
+        waits source_mismatch_retry_seconds: the same bytes would mismatch again)."""
         failure: AdapterRefusal | None = None
         try:
             self._warm(pin)
         except _Stopped:
             return  # stays queued in the index as an incomplete source; resumed on the next start
         except AdapterRefusal as exc:
-            failure = exc
+            # Name the source: the message reaches the BE (admin view) when no other source can answer.
+            failure = AdapterRefusal(exc.status_code, exc.code, f"Source {pin.document_id}: {exc.message}",
+                                     pin.document_id)
         except Exception:
             log.exception("source preparation failed", extra={"document_id": pin.document_id})
             failure = refuse("AI_TEMPORARILY_UNAVAILABLE", "Source preparation failed", status=503)
@@ -185,13 +197,22 @@ class SourceWarmer:
             self._queue.pop(key, None)
             if failure is not None:
                 log.warning("source %s not prepared: %s", pin.document_id, failure.code)
-                self._failed[key] = (failure, self.clock() + self.settings.source_retry_seconds)
+                wait = (self.settings.source_mismatch_retry_seconds if failure.code == "AI_SOURCE_HASH_MISMATCH"
+                        else self.settings.source_retry_seconds)
+                self._failed[key] = (failure, self.clock() + wait)
+            # Expired failures of keys never asked again (e.g. the source moved to a new hash) would stay forever.
+            now = self.clock()
+            for stale in [k for k, (_, until) in self._failed.items() if until <= now]:
+                del self._failed[stale]
 
     def _sleep(self, seconds: float) -> None:
         if self._stop.wait(max(0.0, seconds)):
             raise _Stopped()
 
     def _warm(self, pin: SourcePin) -> None:
+        if pin.kind != "KnowledgeSource":
+            self._warm_inline(pin)
+            return
         model = self.provider.embedding_model
         content_hash = pin.content_hash or ""
         if self.index.has_current(pin.document_id, content_hash, model):
@@ -220,6 +241,18 @@ class SourceWarmer:
                 source_uri=pin.source_uri, title=pin.title,
             )
         log.info("source %s ready", pin.document_id)
+
+    def _warm_inline(self, pin: SourcePin) -> None:
+        """Inline content (sent with the question) only fills the embedding cache; nothing is fetched or indexed."""
+        model = self.provider.embedding_model
+        texts = [c.content for c in chunk_sections(inline_sections(pin), pin.document_id, pin.document_version)]
+        missing = [t for t, v in zip(texts, self.inline_cache.get_many(model, texts)) if v is None]
+        size = max(1, self.settings.embed_batch_size)
+        if missing:
+            log.info("embedding inline source %s: %d of %d chunks left", pin.document_id, len(missing), len(texts))
+        for start in range(0, len(missing), size):
+            batch = missing[start:start + size]
+            self.inline_cache.put_many(model, batch, self._embed(batch))
 
     def _embed(self, texts: list[str]) -> list[list[float]]:
         limited = failed = 0
