@@ -12,8 +12,27 @@ from app.sources.chunking import Chunk
 _TOKEN = re.compile(r"\w+", re.UNICODE)
 
 
+# Vietnamese (and a few English) function words that carry no topic: counting them let a chunk full of "là, của, có,
+# khi" outrank the one about the asked term (AI#44). Kept short on purpose: words such as "không", "người", "xuống"
+# change the meaning of a fire-safety question and stay searchable.
+STOPWORDS = frozenset("""
+là của và có khi thì các những này nào gì như được cho với trong để một bạn tôi mình cần phải làm sao thế nếu hay hoặc
+đã đang sẽ rồi ạ à nhé nhỉ vậy đó đây kia ở về bị theo mà nên cũng vẫn còn rất thể hãy xin giúp ơi
+the a an of to is are and or in on for what how
+""".split())
+
+
 def _tokens(text: str) -> list[str]:
     return _TOKEN.findall(text.lower())
+
+
+def query_terms(text: str) -> list[str]:
+    """Distinct searchable words of a question, in order: lower-cased, without stopwords; [] when none is left."""
+    seen: dict[str, None] = {}
+    for token in _tokens(text):
+        if token not in STOPWORDS:
+            seen.setdefault(token, None)
+    return list(seen)
 
 
 def rrf_merge(rankings: list[list[str]], k: int = 60) -> list[tuple[str, float]]:
@@ -24,13 +43,33 @@ def rrf_merge(rankings: list[list[str]], k: int = 60) -> list[tuple[str, float]]
     return sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
 
 
-def lexical_rank(query: str, texts: dict[str, str]) -> list[str]:
-    q = set(_tokens(query))
+def lexical_rank(query: str, texts: dict[str, str], k1: float = 1.2, b: float = 0.75) -> list[str]:
+    """Keys by BM25 over these texts (AI#44): rare words of the question ("CO2", "QCVN") weigh more than common ones,
+    stopwords do not count, long chunks are not favoured. Keys without any query word are dropped; ties keep order."""
+    terms = query_terms(query)
+    if not terms or not texts:
+        return []
+    docs = {key: _tokens(text) for key, text in texts.items()}
+    n = len(docs)
+    avgdl = (sum(len(tokens) for tokens in docs.values()) / n) or 1.0
+    counts = {key: {} for key in docs}
+    df = dict.fromkeys(terms, 0)
+    wanted = set(terms)
+    for key, tokens in docs.items():
+        tf = counts[key]
+        for token in tokens:
+            if token in wanted:
+                tf[token] = tf.get(token, 0) + 1
+        for term in tf:
+            df[term] += 1
+    idf = {term: math.log(1.0 + (n - df[term] + 0.5) / (df[term] + 0.5)) for term in terms}
     scored = []
-    for key, text in texts.items():
-        score = len(q & set(_tokens(text)))
-        if score > 0:
-            scored.append((key, score))
+    for key, tf in counts.items():
+        if not tf:
+            continue
+        norm = k1 * (1.0 - b + b * len(docs[key]) / avgdl)
+        score = sum(idf[t] * f * (k1 + 1.0) / (f + norm) for t, f in tf.items())
+        scored.append((key, score))
     scored.sort(key=lambda kv: kv[1], reverse=True)
     return [key for key, _ in scored]
 

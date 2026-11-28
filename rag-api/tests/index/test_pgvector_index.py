@@ -93,3 +93,19 @@ def test_add_chunks_in_batches_complete_and_resume(pg_dsn, idx):
     assert idx.incomplete_sources("m1") == []
     idx.add_chunks(a, "v2", "h2", "m1", 1, _chunks(a, "v2", 1), _emb(1))
     assert not idx.has_current(a, "h1", "m1") and idx.has_current(a, "h2", "m1")
+
+
+def test_keyword_search_matches_a_natural_question(pg_dsn, idx):
+    """AI#44: one rare word of a long question is enough; the chunk with it ranks first even when its vector is far."""
+    a = _source(pg_dsn)
+    chunks = [
+        Chunk("x", a, "v1", 0, "Khi có cháy, hãy bình tĩnh và gọi 114.", {}, "Trang"),
+        Chunk("x", a, "v1", 1, "Bình CO2 dùng cho đám cháy thiết bị điện, không cầm vào loa phun.", {}, "Trang"),
+    ]
+    idx.replace(a, "v1", "h1", "m1", chunks, [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    out = idx.search("Khi nào thì mình nên dùng bình CO2 vậy?", [1.0, 0.0, 0.0], [a], "m1", 1)
+    assert [s.chunk.chunk_index for s in out] == [0]  # tie on RRF: vector list first
+    out = idx.search("Khi nào thì mình nên dùng bình CO2 vậy?", [0.5, 0.0, 0.5], [a], "m1", 2)
+    assert {s.chunk.chunk_index for s in out} == {0, 1}
+    # Only stopwords: no keyword query is sent, vector search still answers.
+    assert idx.search("là của và", [1.0, 0.0, 0.0], [a], "m1", 1)
