@@ -149,3 +149,79 @@ def test_direct_embedding_stops_after_a_provider_error():
     with pytest.raises(AdapterRefusal):
         resolver.prepare(pins)
     assert provider.embedded == [] and warmer.pending() == 4
+
+
+# ---- AI#43: the cache survives a restart when it has a path ----------------------------------------------------------
+
+
+def test_cache_persists_and_reloads_in_lru_order(tmp_path):
+    path = tmp_path / "data" / "inline.npz"
+    cache = EmbeddingCache(max_items=10, path=path, save_interval=3600)
+    cache.put_many("m", ["a", "b"], [[1.0, 0.0], [0.0, 1.0]])
+    cache.put_many("other", ["a"], [[0.5, 0.5, 0.5]])
+    cache.get_many("m", ["a"])  # a becomes the most recent of model m
+    assert not path.exists()  # inside save_interval: nothing written yet
+    assert cache.flush() and path.is_file()
+    assert not cache.flush()  # unchanged since the last write
+
+    again = EmbeddingCache(max_items=2, path=path)
+    assert len(again) == 2  # the oldest entry (m/b) is dropped to fit the new limit
+    assert again.get_many("m", ["a", "b"]) == [[1.0, 0.0], None]
+    assert again.get_many("other", ["a"]) == [[0.5, 0.5, 0.5]]
+
+
+def test_put_writes_once_interval_passed(tmp_path):
+    now = [0.0]
+    path = tmp_path / "inline.npz"
+    cache = EmbeddingCache(path=path, save_interval=5, clock=lambda: now[0])
+    cache.put_many("m", ["a"], [[1.0]])
+    assert not path.exists()
+    now[0] = 6.0
+    cache.put_many("m", ["b"], [[2.0]])
+    assert path.is_file()
+    assert EmbeddingCache(path=path).get_many("m", ["a", "b"]) == [[1.0], [2.0]]
+
+
+@pytest.mark.parametrize("content", [b"", b"not a zip", None])
+def test_unreadable_or_foreign_file_starts_empty(tmp_path, content):
+    path = tmp_path / "inline.npz"
+    if content is None:
+        import numpy as np
+
+        np.savez(path, format=np.array("something-else/9"), models=np.array([], dtype="<U1"))
+    else:
+        path.write_bytes(content)
+    cache = EmbeddingCache(path=path)
+    assert len(cache) == 0
+    cache.put_many("m", ["a"], [[1.0]])
+    assert cache.flush()
+    assert EmbeddingCache(path=path).get_many("m", ["a"]) == [[1.0]]
+
+
+def test_failed_write_keeps_serving_and_retries(tmp_path, monkeypatch):
+    path = tmp_path / "inline.npz"
+    cache = EmbeddingCache(path=path, save_interval=3600)
+    cache.put_many("m", ["a"], [[1.0]])
+    monkeypatch.setattr(cache, "_write", lambda entries: (_ for _ in ()).throw(OSError("disk full")))
+    assert not cache.flush()
+    assert cache.get_many("m", ["a"]) == [[1.0]]
+    monkeypatch.undo()
+    assert cache.flush() and path.is_file()
+
+
+def test_warmer_restart_reuses_saved_lessons(tmp_path):
+    path = str(tmp_path / "inline.npz")
+    provider = CountingProvider()
+    settings = Settings(_env_file=None, inline_sync_chunks=0, inline_cache_path=path)
+    warmer = SourceWarmer(MemoryIndex(), provider, settings, background=False)
+    resolver = SourceResolver(warmer.index, provider, settings, warmer=warmer)
+    first = resolver.prepare([lesson()])
+    assert first.inline_chunks and provider.embedded  # embedded by the (foreground) warmer, then written to disk
+    warmer.stop()
+
+    restarted_provider = CountingProvider()
+    warmer2 = SourceWarmer(MemoryIndex(), restarted_provider, settings, background=False)
+    resolver2 = SourceResolver(warmer2.index, restarted_provider, settings, warmer=warmer2)
+    second = resolver2.prepare([lesson()])
+    assert len(second.inline_chunks) == len(first.inline_chunks)
+    assert restarted_provider.embedded == []  # nothing embedded again after the restart

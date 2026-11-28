@@ -98,6 +98,7 @@ File `/opt/fire3d-ai/.env` được chép từ bản ở máy người deploy (`
 | `EMBED_ITEMS_PER_MINUTE`, `EMBED_TOKENS_PER_MINUTE` | `100000`, `100000000` | Đặt rất cao vì embedding tại chỗ không có quota |
 | `GENERAL_ANSWERS` | `true` | Trả lời câu thông thường khi không có nguồn phù hợp |
 | `MAX_OUTPUT_TOKENS` | `4096` | Trần token đầu ra |
+| `INLINE_CACHE_PATH` | `/opt/fire3d-ai/data/inline-embeddings.npz` | Giữ vector của bài Learn qua các lần khởi động lại và deploy (AI#43); để trống thì chỉ giữ trong RAM |
 | `LEGACY_ROUTES_ENABLED` | `false` | Tắt route demo cũ |
 | `LLM_PROVIDER`, `GEMINI_API_KEY`, `GEMINI_CHAT_MODEL` | còn trong file, **không được dùng** khi đã có `CHAT_PROVIDER` + `EMBED_PROVIDER=local` | Có thể xoá |
 
