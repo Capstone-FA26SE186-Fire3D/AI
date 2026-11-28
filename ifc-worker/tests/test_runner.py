@@ -115,3 +115,60 @@ def test_runner_fails_on_non_stale_conflict(tmp_path):
     JobRunner(gate, storage, settings(), process_two).run("j1", claim())
     fails = [b for a, b in calls if a == "fail"]
     assert len(fails) == 1 and "OUTPUT_CONFLICT" in fails[0]["reason"]
+
+
+def test_runner_never_completes_when_process_produces_no_outputs(tmp_path):
+    gate, storage, calls, _ = setup(tmp_path, ok_handler)
+    JobRunner(gate, storage, settings(), lambda *_: []).run("j1", claim())
+    assert [action for action, _ in calls] == ["fail"]
+    assert "no outputs" in calls[0][1]["reason"]
+
+
+def test_runner_download_error_fails_without_processing_or_registering(tmp_path):
+    gate, storage, calls, _ = setup(tmp_path, ok_handler)
+    seen = []
+
+    def broken_download(*_):
+        raise OSError("download unavailable")
+
+    storage.download = broken_download
+    JobRunner(gate, storage, settings(), lambda *_: seen.append("processed") or []).run("j1", claim())
+    assert [action for action, _ in calls] == ["fail"]
+    assert not seen
+    assert "download unavailable" in calls[0][1]["reason"]
+
+
+def test_runner_upload_error_never_registers_or_completes(tmp_path):
+    gate, storage, calls, _ = setup(tmp_path, ok_handler)
+
+    def broken_upload(*_):
+        raise OSError("upload unavailable")
+
+    storage.upload = broken_upload
+    JobRunner(gate, storage, settings(), process_two).run("j1", claim())
+    assert [action for action, _ in calls] == ["fail"]
+    assert "upload unavailable" in calls[0][1]["reason"]
+
+
+def test_runner_register_error_never_completes_and_reports_failure(tmp_path):
+    def handler(action, body):
+        if action == "outputs":
+            return httpx.Response(503, json={"code": "REGISTER_UNAVAILABLE"})
+        return ok_handler(action, body)
+
+    gate, storage, calls, root = setup(tmp_path, handler)
+    JobRunner(gate, storage, settings(), process_two).run("j1", claim())
+    assert [action for action, _ in calls] == ["outputs", "fail"]
+    assert (root / "out/j1/a.json").exists()
+    assert "REGISTER_UNAVAILABLE" in calls[-1][1]["reason"]
+
+
+def test_runner_fail_callback_error_does_not_escape_or_send_completion(tmp_path):
+    def handler(action, body):
+        if action == "fail":
+            return httpx.Response(503, json={"code": "FAIL_UNAVAILABLE"})
+        return ok_handler(action, body)
+
+    gate, storage, calls, _ = setup(tmp_path, handler)
+    JobRunner(gate, storage, settings(), lambda *_: []).run("j1", claim())
+    assert [action for action, _ in calls] == ["fail"]

@@ -1,2 +1,12 @@
 # Codex session notes are machine-local; shared guidance stays trackable.
 /.codex/local/
+/rag-api/.codex/
+/ifc-worker/.codex/
+/rag-api/.coverage
+/ifc-worker/.coverage
+/rag-api/coverage.xml
+/rag-api/coverage.json
+/rag-api/test-results.xml
+/ifc-worker/coverage.xml
+/ifc-worker/coverage.json
+/ifc-worker/test-results.xml
