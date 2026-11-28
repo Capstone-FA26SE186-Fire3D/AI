@@ -34,3 +34,13 @@ def test_other_model_not_returned_and_prune_is_noop():
     assert idx.search("bình", [1.0, 0.0], ["A"], "other", 5) == []
     idx.eligible["A"] = False
     assert idx.prune_ineligible() == 0
+
+
+def test_current_sources_matches_has_current():
+    from app.index.memory import MemoryIndex
+    from app.sources.chunking import Chunk
+
+    idx = MemoryIndex()
+    idx.replace("a", "v1", "ha", "m1", [Chunk("x", "a", "v1", 0, "nội dung", {}, "Trang")], [[1.0]])
+    assert idx.current_sources([("a", "ha"), ("a", "old"), ("b", "hb")], "m1") == {("a", "ha")}
+    assert idx.current_sources([("a", "ha")], "m2") == set()

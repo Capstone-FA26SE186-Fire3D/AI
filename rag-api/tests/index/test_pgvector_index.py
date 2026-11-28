@@ -109,3 +109,16 @@ def test_keyword_search_matches_a_natural_question(pg_dsn, idx):
     assert {s.chunk.chunk_index for s in out} == {0, 1}
     # Only stopwords: no keyword query is sent, vector search still answers.
     assert idx.search("là của và", [1.0, 0.0, 0.0], [a], "m1", 1)
+
+
+def test_current_sources_answers_many_in_one_query(pg_dsn, idx):
+    done, partial, other_model = _source(pg_dsn), _source(pg_dsn), _source(pg_dsn)
+    idx.replace(done, "v1", "h-done", "m1", _chunks(done), _emb())
+    idx.add_chunks(partial, "v1", "h-part", "m1", 3, _chunks(partial, n=1), _emb(1))
+    idx.replace(other_model, "v1", "h-other", "m2", _chunks(other_model), _emb())
+    asked = [(done, "h-done"), (done.upper(), "h-done"), (done, "old-hash"), (partial, "h-part"),
+             (other_model, "h-other"), ("not-a-uuid", "x"), (str(uuid.uuid4()), "h")]
+    assert idx.current_sources(asked, "m1") == {(done, "h-done"), (done.upper(), "h-done")}
+    assert idx.current_sources([], "m1") == set()
+    for doc, digest in asked:
+        assert ((doc, digest) in idx.current_sources(asked, "m1")) == idx.has_current(doc, digest, "m1")

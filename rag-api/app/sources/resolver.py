@@ -69,6 +69,13 @@ class SourceResolver:
         # Chunks this question may still embed directly, across all its inline sources; 0 after a provider error.
         budget = _Budget(self.settings.inline_sync_chunks)
         failed: list[tuple[SourcePin, AdapterRefusal]] = []
+        # One index round trip for every pinned knowledge source instead of one connection and query per source.
+        model = self.provider.embedding_model
+        current = self.index.current_sources(
+            [(p.document_id, p.content_hash) for p in pins
+             if p.kind == "KnowledgeSource" and p.content_hash and not p.content_omitted],
+            model,
+        )
         for pin in pins:
             if pin.content_omitted:
                 prepared.limitations.append(f"Nguồn {_name(pin)} quá lớn, không được dùng.")
@@ -85,10 +92,7 @@ class SourceResolver:
             if not pin.content_hash:
                 raise refuse("AI_SOURCE_UNAVAILABLE", f"Source {pin.document_id} has no content hash to verify",
                              document_id=pin.document_id)
-            state = (
-                "ready" if self.index.has_current(pin.document_id, pin.content_hash, self.provider.embedding_model)
-                else self.warmer.request(pin)
-            )
+            state = "ready" if (pin.document_id, pin.content_hash) in current else self.warmer.request(pin)
             if isinstance(state, AdapterRefusal):
                 failed.append((pin, state))
             elif state == QUEUED:
