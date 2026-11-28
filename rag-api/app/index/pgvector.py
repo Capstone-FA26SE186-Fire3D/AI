@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 
 import numpy as np
@@ -9,7 +10,7 @@ import psycopg
 from pgvector.psycopg import register_vector
 
 from app.index.base import IncompleteSource, ScoredChunk
-from app.index.ranking import normalise, rrf_merge
+from app.index.ranking import normalise, query_terms, rrf_merge
 from app.sources.chunking import Chunk, format_locator
 
 _CANDIDATES = 20
@@ -22,10 +23,24 @@ _VECTOR_SQL = (
 _TEXT_SQL = (
     "SELECT id, source_id, chunk_index, content, locator, metadata FROM knowledge_chunks "
     "WHERE source_id = ANY(%s::uuid[]) AND metadata->>'embedding_model' = %s "
-    "AND to_tsvector('simple', content) @@ plainto_tsquery('simple', %s) "
-    "ORDER BY ts_rank(to_tsvector('simple', content), plainto_tsquery('simple', %s)) DESC LIMIT "
+    "AND to_tsvector('simple', content) @@ to_tsquery('simple', %s) "
+    "ORDER BY ts_rank(to_tsvector('simple', content), to_tsquery('simple', %s)) DESC LIMIT "
     + str(_CANDIDATES)
 )
+# Letters and digits only, so a term is always a plain tsquery lexeme (no operators, no "_" that the parser splits).
+_LEXEME = re.compile(r"[^\W_]+", re.UNICODE)
+_MAX_TERMS = 32
+
+
+def text_query(question: str) -> str | None:
+    """OR of the question's words without stopwords (AI#44); plainto_tsquery ANDs every word ("khi", "là", "có"…), so
+    a natural Vietnamese question almost never matched a chunk and keyword search added nothing. None: no word left."""
+    terms: dict[str, None] = {}
+    for term in query_terms(question):
+        for lexeme in _LEXEME.findall(term):
+            terms.setdefault(lexeme, None)
+    picked = list(terms)[:_MAX_TERMS]
+    return " | ".join(picked) if picked else None
 
 
 def _uuids(ids: list[str]) -> list[str]:
@@ -194,7 +209,10 @@ class PgVectorIndex:
             vec_rows = conn.execute(
                 _VECTOR_SQL, (ids, embedding_model, np.asarray(query_embedding, dtype=np.float32))
             ).fetchall()
-            txt_rows = conn.execute(_TEXT_SQL, (ids, embedding_model, query_text, query_text)).fetchall()
+            tsq = text_query(query_text)
+            txt_rows = (
+                conn.execute(_TEXT_SQL, (ids, embedding_model, tsq, tsq)).fetchall() if tsq is not None else []
+            )
         chunks: dict[str, Chunk] = {}
         for row in [*vec_rows, *txt_rows]:
             chunks.setdefault(str(row[0]), _chunk(row))

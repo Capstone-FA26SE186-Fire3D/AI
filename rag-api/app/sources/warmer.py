@@ -95,7 +95,7 @@ class SourceWarmer:
         self.clock = clock
         self.limiter = RateLimiter(settings.embed_items_per_minute, clock, self._sleep)
         self.token_limiter = RateLimiter(settings.embed_tokens_per_minute, clock, self._sleep)
-        self.inline_cache = EmbeddingCache(settings.inline_cache_items)
+        self.inline_cache = EmbeddingCache(settings.inline_cache_items, settings.inline_cache_path or None)
         self._queue: dict[tuple[str, str], SourcePin] = {}
         self._failed: dict[tuple[str, str], tuple[AdapterRefusal, float]] = {}
         self._cond = threading.Condition()
@@ -150,6 +150,7 @@ class SourceWarmer:
             thread, self._thread = self._thread, None
         if thread is not None:
             thread.join(timeout)
+        self.inline_cache.flush()  # vectors embedded during questions since the last write survive the restart
 
     def _requeue_incomplete(self) -> None:
         try:
@@ -253,6 +254,8 @@ class SourceWarmer:
         for start in range(0, len(missing), size):
             batch = missing[start:start + size]
             self.inline_cache.put_many(model, batch, self._embed(batch))
+        if missing:
+            self.inline_cache.flush()
 
     def _embed(self, texts: list[str]) -> list[list[float]]:
         limited = failed = 0

@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     # question uses the chunks already cached.
     inline_sync_chunks: int = 20
     inline_cache_items: int = 5000
+    # File that keeps the inline embedding cache across restarts and deploys (AI#43), e.g. data/inline-embeddings.npz;
+    # empty keeps it in memory only (local runs, tests).
+    inline_cache_path: str = ""
     legacy_routes_enabled: bool = False
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     @property
