@@ -225,3 +225,29 @@ def test_warmer_restart_reuses_saved_lessons(tmp_path):
     second = resolver2.prepare([lesson()])
     assert len(second.inline_chunks) == len(first.inline_chunks)
     assert restarted_provider.embedded == []  # nothing embedded again after the restart
+
+
+def test_prepare_checks_all_knowledge_sources_in_one_index_call():
+    """A question pinning many knowledge sources asks the index once, not once per source."""
+    resolver, index, provider, warmer = setup()
+    calls = {"many": 0, "one": 0}
+    real_many, real_one = index.current_sources, index.has_current
+
+    def many(sources, model):
+        calls["many"] += 1
+        index.has_current = real_one  # the in-memory index answers the batch through has_current itself
+        try:
+            return real_many(sources, model)
+        finally:
+            index.has_current = one
+
+    def one(*args):
+        calls["one"] += 1
+        return real_one(*args)
+
+    index.current_sources, index.has_current = many, one
+    pins = [SourcePin(kind="KnowledgeSource", document_id=f"doc-{i}", document_version="v1", content_hash=f"h{i}",
+                      source_uri=f"https://example.org/{i}.pdf") for i in range(30)]
+    with pytest.raises(AdapterRefusal):  # nothing indexed yet: all 30 are queued for the warmer
+        resolver.prepare(pins)
+    assert calls == {"many": 1, "one": 0}

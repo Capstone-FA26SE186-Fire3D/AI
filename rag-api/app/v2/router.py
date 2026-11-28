@@ -111,11 +111,15 @@ def build_v2_router(get_service: Callable[[], RequestService], settings: Setting
             index, warmer = service.resolver.index, service.resolver.warmer
             model = service.resolver.provider.embedding_model
             states = []
+            current = index.current_sources(
+                [(p.document_id, p.content_hash) for p in body.sources if p.kind == "KnowledgeSource" and p.content_hash],
+                model,
+            )
             for pin in body.sources:
                 if pin.kind != "KnowledgeSource" or not pin.content_hash:
                     states.append({"document_id": pin.document_id, "state": "failed", "code": "AI_SOURCE_UNAVAILABLE"})
                     continue
-                state = "ready" if index.has_current(pin.document_id, pin.content_hash, model) else warmer.request(pin)
+                state = "ready" if (pin.document_id, pin.content_hash) in current else warmer.request(pin)
                 if isinstance(state, AdapterRefusal):
                     states.append({"document_id": pin.document_id, "state": "failed", "code": state.code})
                 else:

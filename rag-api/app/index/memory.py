@@ -25,6 +25,9 @@ class MemoryIndex:
             doc = self._doc(document_id, content_hash, embedding_model)
             return bool(doc and doc["rows"] and len(doc["rows"]) >= doc["chunk_count"])
 
+    def current_sources(self, sources: list[tuple[str, str]], embedding_model: str) -> set[tuple[str, str]]:
+        return {(doc, digest) for doc, digest in sources if self.has_current(doc, digest, embedding_model)}
+
     def indexed_chunks(self, document_id: str, content_hash: str, embedding_model: str) -> set[int]:
         with self._lock:
             doc = self._doc(document_id, content_hash, embedding_model)

@@ -92,6 +92,22 @@ class PgVectorIndex:
         # Rows written by replace() carry no chunk_count: they were stored in one transaction, so complete.
         return stored > 0 and (expected is None or stored >= expected)
 
+    def current_sources(self, sources: list[tuple[str, str]], embedding_model: str) -> set[tuple[str, str]]:
+        wanted = {(doc, digest) for doc, digest in sources if digest and _uuids([doc])}
+        if not wanted:
+            return set()
+        ids = _uuids(sorted({doc for doc, _ in wanted}))
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT source_id::text, metadata->>'content_hash', count(*), max((metadata->>'chunk_count')::int) "
+                "FROM knowledge_chunks WHERE source_id = ANY(%s::uuid[]) AND metadata->>'embedding_model' = %s "
+                "GROUP BY 1, 2",
+                (ids, embedding_model),
+            ).fetchall()
+        # Same completeness rule as has_current; ids are compared in canonical lower-case uuid form.
+        complete = {(doc, digest) for doc, digest, stored, expected in rows if expected is None or stored >= expected}
+        return {(doc, digest) for doc, digest in wanted if (str(uuid.UUID(doc)), digest) in complete}
+
     def indexed_chunks(self, document_id: str, content_hash: str, embedding_model: str) -> set[int]:
         ids = _uuids([document_id])
         if not ids:
